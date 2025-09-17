@@ -1,5 +1,7 @@
 from django.contrib import admin
-from .models import Portal, PortalCategory, MasterCategory, MasterCategoryMapping
+from .models import (
+    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group
+)
 
 @admin.register(Portal)
 class PortalAdmin(admin.ModelAdmin):
@@ -27,3 +29,10 @@ class MasterCategoryMappingAdmin(admin.ModelAdmin):
     list_display = ['id', 'master_category', 'portal_category']
     search_fields = ['id', 'master_category', 'portal_category']
     list_filter = ['id', 'master_category', 'portal_category']
+
+
+@admin.register(Group)
+class GroupAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name']
+    search_fields = ['id', 'name']
+    list_filter = ['id', 'name']
