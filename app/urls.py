@@ -1,7 +1,8 @@
 from django.urls import path
 from .views import (
     PortalListCreateView, PortalDetailView, PortalCategoryCreateView, PortalCategoryUpdateDeleteView,
-    PortalCategoryListView, MasterCategoryView, MasterCategoryMappingView, MasterCategoryMappingsListView
+    PortalCategoryListView, MasterCategoryView, MasterCategoryMappingView, MasterCategoryMappingsListView,
+    GroupCreateListAPIView, GroupRetrieveUpdateDeleteAPIView, GroupCategoriesListAPIView
 )
 
 urlpatterns = [
@@ -20,4 +21,9 @@ urlpatterns = [
     path('master/category/mapping/', MasterCategoryMappingView.as_view()),
     path('master/category/mapping/<int:pk>/', MasterCategoryMappingView.as_view()),
     path('master/categories/mapped/<int:master_category_id>/', MasterCategoryMappingsListView.as_view()),
+    
+    # Groups
+    path('group/', GroupCreateListAPIView.as_view()),
+    path('group/<int:pk>/', GroupRetrieveUpdateDeleteAPIView.as_view()),
+    path('group/categories/', GroupCategoriesListAPIView.as_view()),
 ]

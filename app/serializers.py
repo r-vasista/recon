@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import (
-    Portal, PortalCategory, MasterCategory, MasterCategoryMapping,
+    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group
 )
 
 class PortalSerializer(serializers.ModelSerializer):
@@ -56,6 +56,12 @@ class MasterCategorySerializer(serializers.ModelSerializer):
         fields = ["id", "name", "description", "created_at", "updated_at"]
 
 
+class MasterCategoryListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MasterCategory
+        fields = ["id", "name"]
+        
+
 class MasterCategoryMappingSerializer(serializers.ModelSerializer):
     master_category_name = serializers.CharField(source="master_category.name", read_only=True)
     portal_name = serializers.CharField(source="portal_category.portal.name", read_only=True)
@@ -64,3 +70,22 @@ class MasterCategoryMappingSerializer(serializers.ModelSerializer):
     class Meta:
         model = MasterCategoryMapping
         fields = ["id", "master_category", "master_category_name", "portal_category", "portal_name", "portal_category_name"]
+
+
+class GroupSerializer(serializers.ModelSerializer):
+    master_categories = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=MasterCategory.objects.all()
+    )
+
+    class Meta:
+        model = Group
+        fields = ['id', 'name', 'master_categories']
+
+
+class GroupListSerializer(serializers.ModelSerializer):
+    master_categories = MasterCategoryListSerializer(many=True)
+
+    class Meta:
+        model = Group
+        fields = ['id', 'name', 'master_categories']

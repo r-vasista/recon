@@ -5,13 +5,14 @@ from django.http import Http404
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 
 from .models import (
-    Portal, PortalCategory, MasterCategory, MasterCategoryMapping
+    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group
 )
 from .serializers import (
     PortalSerializer, PortalSafeSerializer, PortalCategorySerializer, MasterCategorySerializer, 
-    MasterCategoryMappingSerializer
+    MasterCategoryMappingSerializer, GroupSerializer, GroupListSerializer
 )
 from .utils import success_response, error_response
 from .pagination import PaginationMixin
@@ -411,5 +412,91 @@ class MasterCategoryMappingsListView(APIView, PaginationMixin):
 
         except Http404 as e:
             return Response(error_response(str(e)), status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class GroupCreateListAPIView(APIView, PaginationMixin):
+    """
+    POST /api/groups/ → Create a group
+    GET /api/groups/ → List all groups with pagination
+    """
+
+    def post(self, request):
+        try:
+            serializer = GroupSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            group = serializer.save()
+            return Response(
+                success_response(GroupSerializer(group).data, "Group created successfully"),
+                status=status.HTTP_201_CREATED
+            )
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_400_BAD_REQUEST)
+
+    def get(self, request):
+        try:
+            queryset = Group.objects.all().order_by("id")
+            page = self.paginate_queryset(queryset, request)
+            serializer = GroupListSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data, message="Groups fetched successfully")
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class GroupRetrieveUpdateDeleteAPIView(APIView):
+    """
+    GET /api/groups/{id}/ → Retrieve single group
+    PUT /api/groups/{id}/ → Update group
+    DELETE /api/groups/{id}/ → Delete group
+    """
+
+    def get_object(self, pk):
+        return get_object_or_404(Group, pk=pk)
+
+    def get(self, request, pk):
+        try:
+            group = self.get_object(pk)
+            serializer = GroupListSerializer(group)
+            return Response(success_response(serializer.data, "Group details fetched successfully"), status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def put(self, request, pk):
+        try:
+            group = self.get_object(pk)
+            serializer = GroupSerializer(group, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(success_response(serializer.data, "Group updated successfully"), status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        try:
+            group = self.get_object(pk)
+            group.delete()
+            return Response(success_response({}, "Group deleted successfully"), status=status.HTTP_204_NO_CONTENT)
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class GroupCategoriesListAPIView(APIView, PaginationMixin):
+    """
+    GET /api/group/categories/?group_id=<id>
+    List all master categories in a group
+    """
+    def get(self, request):
+        try:
+            group_id = request.query_params.get("group_id")
+            if not group_id:
+                return Response(error_response("group_id is required"), status=status.HTTP_400_BAD_REQUEST)
+
+            group = get_object_or_404(Group, pk=group_id)
+            queryset = group.master_categories.all().order_by("id")
+            page = self.paginate_queryset(queryset, request)
+            # Return only name & id for categories
+            data = [{"id": cat.id, "name": cat.name} for cat in page]
+            return self.get_paginated_response(data, message=f"Master categories for group '{group.name}' fetched successfully")
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
