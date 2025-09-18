@@ -1,7 +1,7 @@
 import uuid
 from django.db import models
 from django.contrib.auth import get_user_model
-from app.models import BaseModel, Portal
+from app.models import BaseModel, Portal, Group, MasterCategory
 
 User = get_user_model()
 
@@ -37,3 +37,32 @@ class PortalUserMapping(BaseModel):
         return f"{self.user.username} -> {self.portal.name} ({self.status})"
 
 
+class UserCategoryGroupAssignment(BaseModel):
+    """Assign either a Group or a MasterCategory to a User."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="category_group_assignments")
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, null=True, blank=True, related_name="user_assignments")
+    master_category = models.ForeignKey(MasterCategory, on_delete=models.CASCADE, null=True, blank=True, related_name="user_assignments")
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(group__isnull=False, master_category__isnull=True) |
+                    models.Q(group__isnull=True, master_category__isnull=False)
+                ),
+                name="only_one_of_group_or_category"
+            ),
+            models.UniqueConstraint(
+                fields=["user", "group"],
+                name="unique_user_group_assignment"
+            ),
+            models.UniqueConstraint(
+                fields=["user", "master_category"],
+                name="unique_user_category_assignment"
+            ),
+        ]
+
+    def __str__(self):
+        if self.group:
+            return f"{self.user} → Group: {self.group}"
+        return f"{self.user} → Category: {self.master_category}"

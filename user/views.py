@@ -13,10 +13,11 @@ from django.contrib.auth import get_user_model
 import requests
 
 from .models import (
-    PortalUserMapping
+    PortalUserMapping, UserCategoryGroupAssignment
 )
 from .serializers import (
-    PortalCheckResultSerializer, UserRegistrationSerializer, PortalUserMappingListSerializer, CustomTokenObtainPairSerializer
+    PortalCheckResultSerializer, UserRegistrationSerializer, PortalUserMappingListSerializer, CustomTokenObtainPairSerializer,
+    UserAssignmentCreateSerializer, UserAssignmentListSerializer
 )
 from .utils import (
     map_user_to_portals
@@ -186,3 +187,67 @@ class UserPortalMappingsListAPIView(APIView, PaginationMixin):
 
         return self.get_paginated_response(serializer.data, message="Portal mappings fetched successfully")
 
+
+class UserAssignmentCreateAPIView(APIView):
+    """
+    POST /api/user-assignments/
+    Assign multiple groups OR multiple master categories to a user.
+    """
+
+    def post(self, request):
+        try:
+            serializer = UserAssignmentCreateSerializer(data=request.data)
+            if serializer.is_valid():
+                assignments = serializer.save()
+                data = UserAssignmentListSerializer(assignments, many=True).data
+                return Response(success_response(
+                    data,
+                    "Assignments created successfully"
+                ), status=status.HTTP_201_CREATED)
+            return Response(error_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class UserAssignmentListByUserAPIView(APIView, PaginationMixin):
+    """
+    GET /api/user-assignments/{username}/
+    List assignments for a particular user
+    """
+    def get(self, request, username):
+        try:
+            user = get_object_or_404(User, username=username)
+            queryset = UserCategoryGroupAssignment.objects.filter(user=user).order_by("-created_at")
+            page = self.paginate_queryset(queryset, request)
+            serializer = UserAssignmentListSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data, message=f"Assignments for user {username}")
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class UserAssignmentListAPIView(APIView, PaginationMixin):
+    """
+    GET /api/user-assignments/
+    List all assignments (admin view, with pagination & filters)
+    Filters: ?group=1, ?master_category=2, ?username=john
+    """
+    def get(self, request):
+        try:
+            queryset = UserCategoryGroupAssignment.objects.all().order_by("-created_at")
+
+            group = request.query_params.get("group")
+            master_category = request.query_params.get("master_category")
+            username = request.query_params.get("username")
+
+            if group:
+                queryset = queryset.filter(group_id=group)
+            if master_category:
+                queryset = queryset.filter(master_category_id=master_category)
+            if username:
+                queryset = queryset.filter(user__username=username)
+
+            page = self.paginate_queryset(queryset, request)
+            serializer = UserAssignmentListSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data, message="All user assignments fetched successfully")
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
