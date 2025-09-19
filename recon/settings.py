@@ -137,3 +137,6 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(days=5),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=10),
 }
+
+
+OPEN_AI_KEY =  os.environ.get('OPEN_AI_KEY', '')

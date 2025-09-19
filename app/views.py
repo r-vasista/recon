@@ -1,22 +1,30 @@
+import requests
+from urllib.parse import urljoin
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from django.http import Http404
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from .models import (
-    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group
+    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution
 )
 from .serializers import (
     PortalSerializer, PortalSafeSerializer, PortalCategorySerializer, MasterCategorySerializer, 
     MasterCategoryMappingSerializer, GroupSerializer, GroupListSerializer
 )
-from .utils import success_response, error_response
+from .utils import (
+    success_response, error_response, generate_variation_with_gpt, get_portals_from_assignment
+)
 from .pagination import PaginationMixin
-
+from user.models import (
+    UserCategoryGroupAssignment
+)
 
 class PortalListCreateView(APIView, PaginationMixin):
     """
@@ -500,3 +508,143 @@ class GroupCategoriesListAPIView(APIView, PaginationMixin):
             return self.get_paginated_response(data, message=f"Master categories for group '{group.name}' fetched successfully")
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MasterNewsPostPublishAPIView(APIView):
+    """
+    POST /api/master-news/{id}/publish/
+    Publishes a MasterNewsPost to all portals assigned to the requesting user.
+    Skips if already SUCCESS, retries if FAILED/PENDING.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            user = request.user
+
+            # 1. Get the MasterNewsPost
+            news_post = get_object_or_404(MasterNewsPost, pk=pk)
+
+            # 2. Find assignments linked to this user
+            assignments = UserCategoryGroupAssignment.objects.filter(user=user)
+
+            if not assignments.exists():
+                return Response(
+                    error_response("No assignments found for this user."),
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            results = []
+
+            # 3. Traverse all assignments → portals via mappings
+            for assignment in assignments:
+                for portal, portal_category in get_portals_from_assignment(assignment):
+                    
+                    # 3.a Check existing distribution
+                    distribution = NewsDistribution.objects.filter(
+                        news_post=news_post,
+                        portal=portal
+                    ).first()
+
+                    if distribution and distribution.status == "SUCCESS":
+                        results.append({
+                            "portal": portal.name,
+                            "category": portal_category.name if portal_category else None,
+                            "success": True,
+                            "response": "Skipped - already successfully distributed",
+                        })
+                        continue
+
+                    # 4. Get portal-specific prompt
+                    portal_prompt = getattr(portal, "prompt", None)
+                    prompt_text = (
+                        portal_prompt.prompt_text if portal_prompt else
+                        "You are a news editor. Rewrite the given content slightly for clarity and engagement."
+                    )
+
+                    # 5. Run GPT rewriting
+                    rewritten_title, rewritten_short, rewritten_content = generate_variation_with_gpt(
+                        news_post.title,
+                        news_post.short_description,
+                        news_post.content,
+                        prompt_text
+                    )
+
+                    # 6. Build payload
+                    payload = {
+                        "post_cat": portal_category.external_id if portal_category else None,
+                        "post_title": rewritten_title,
+                        "post_short_des": rewritten_short,
+                        "post_des": rewritten_content,
+                        "post_tag": news_post.post_tag or "#recon",
+                        "author": user.id,
+                        "Event_date": (news_post.Event_date or timezone.now().date()).isoformat(),
+                        "Eventend_date": (news_post.Event_end_date or timezone.now().date()).isoformat(),
+                        "schedule_date": (news_post.schedule_date or timezone.now()).isoformat(),
+                        "Head_Lines": int(bool(news_post.Head_Lines)) if news_post.Head_Lines is not None else 0,
+                        "articles": int(bool(news_post.articles)) if news_post.articles is not None else 0,
+                        "trending": int(bool(news_post.trending)) if news_post.trending is not None else 0,
+                        "BreakingNews": int(bool(news_post.breaking_news or news_post.BreakingNews)),
+                        "Event": int(bool(news_post.Event)) if news_post.Event is not None else 0,
+                        "counter": news_post.counter or 0,
+                    }
+                    files = {"post_image": news_post.post_image.open("rb")} if news_post.post_image else {}
+
+                    # 7. Call portal API
+                    api_url = f'{portal.base_url}/api/create-news/'
+                    try:
+                        response = requests.post(api_url, data=payload, files=files, timeout=10)
+                        success = response.status_code in [200, 201]
+                        response_msg = response.text
+                    except Exception as e:
+                        success = False
+                        response_msg = str(e)
+
+                    # 8. Handle distribution record
+                    if distribution:
+                        # Retry update
+                        distribution.retry_count += 1
+                        distribution.status = "SUCCESS" if success else "FAILED"
+                        distribution.response_message = response_msg
+                        distribution.ai_title = rewritten_title
+                        distribution.ai_short_description = rewritten_short
+                        distribution.ai_content = rewritten_content
+                        distribution.save(update_fields=[
+                            "retry_count", "status", "response_message",
+                            "ai_title", "ai_short_description", "ai_content", "sent_at"
+                        ])
+                    else:
+                        # New distribution
+                        NewsDistribution.objects.create(
+                            news_post=news_post,
+                            portal=portal,
+                            portal_category=portal_category,
+                            group=assignment.group,
+                            master_category=assignment.master_category,
+                            ai_title=rewritten_title,
+                            ai_short_description=rewritten_short,
+                            ai_content=rewritten_content,
+                            status="SUCCESS" if success else "FAILED",
+                            response_message=response_msg,
+                            retry_count=0,
+                        )
+
+                    results.append({
+                        "portal": portal.name,
+                        "category": portal_category.name if portal_category else None,
+                        "success": success,
+                        "response": response_msg,
+                        "retried": bool(distribution),
+                    })
+
+            return Response(
+                success_response(results, "News published to portals"),
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

@@ -97,8 +97,21 @@ class MasterNewsPost(BaseModel):
     title = models.CharField(max_length=255)
     short_description = models.CharField(max_length=300)
     content = models.TextField()
-    post_image = models.ImageField(upload_to="recon/posts/%Y/%m/%d/")
-    master_category = models.ForeignKey(MasterCategory, on_delete=models.CASCADE, related_name="master_news_posts")
+    post_image = models.ImageField(upload_to="media/posts/%Y/%m/%d/")
+    
+    # Optional overrides (subset of fields in each portal's NewsPost model)
+    is_active = models.BooleanField(null=True, blank=True)
+    breaking_news = models.BooleanField(null=True, blank=True)
+    Head_Lines = models.BooleanField(null=True, blank=True)
+    articles = models.BooleanField(null=True, blank=True)
+    trending = models.BooleanField(null=True, blank=True)
+    BreakingNews = models.BooleanField(null=True, blank=True)
+    Event = models.BooleanField(null=True, blank=True)
+    Event_date = models.DateField(null=True, blank=True)
+    Event_end_date = models.DateField(null=True, blank=True)
+    schedule_date = models.DateTimeField(null=True, blank=True)
+    post_tag = models.TextField(null=True, blank=True)
+    counter=models.PositiveIntegerField(null=True, blank=True)
 
     # Meta info
     created_at = models.DateTimeField(auto_now_add=True)
@@ -118,23 +131,19 @@ class NewsDistribution(BaseModel):
     news_post = models.ForeignKey(MasterNewsPost, on_delete=models.CASCADE, related_name="news_distribution")
     portal = models.ForeignKey(Portal, on_delete=models.CASCADE)
     portal_category = models.ForeignKey(PortalCategory, on_delete=models.SET_NULL, null=True, blank=True)
+    group = models.ForeignKey(
+        "Group", on_delete=models.SET_NULL, null=True, blank=True, related_name="news_distributions"
+    )
+    master_category = models.ForeignKey(
+        MasterCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name="news_distributions"
+    )
     extra_data = models.JSONField(null=True, blank=True)
     
     ai_title = models.CharField(max_length=255, null=True, blank=True)
     ai_short_description = models.CharField(max_length=300, null=True, blank=True)
     ai_content = models.TextField(null=True, blank=True)
 
-    # Optional overrides (subset of fields in each portal's NewsPost model)
-    is_active = models.BooleanField(null=True, blank=True)
-    Head_Lines = models.BooleanField(null=True, blank=True)
-    articles = models.BooleanField(null=True, blank=True)
-    trending = models.BooleanField(null=True, blank=True)
-    BreakingNews = models.BooleanField(null=True, blank=True)
-    Event = models.BooleanField(null=True, blank=True)
-    Event_date = models.DateField(null=True, blank=True)
-    Eventend_date = models.DateField(null=True, blank=True)
-    schedule_date = models.DateTimeField(null=True, blank=True)
-    post_tag = models.TextField(null=True, blank=True)
+    
 
     # Extendable JSON for future portal-specific fields
 
@@ -145,9 +154,22 @@ class NewsDistribution(BaseModel):
     )
     response_message = models.TextField(null=True, blank=True)
     sent_at = models.DateTimeField(auto_now_add=True)
+    retry_count = models.PositiveIntegerField(default=0)
     
     class Meta:
         unique_together = ("news_post", "portal")
 
     def __str__(self):
-        return f"{self.recon_post.title} -> {self.portal.name}"
+        return f"{self.news_post.title} -> {self.portal.name}"
+
+
+class PortalPrompt(models.Model):
+    """
+    Custom AI prompt configuration for each portal.
+    If missing → fallback to default/general prompt.
+    """
+    portal = models.OneToOneField(Portal, on_delete=models.CASCADE, related_name="prompt")
+    prompt_text = models.TextField()
+
+    def __str__(self):
+        return f"Prompt for {self.portal.name}"
