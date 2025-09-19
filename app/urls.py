@@ -2,7 +2,8 @@ from django.urls import path
 from .views import (
     PortalListCreateView, PortalDetailView, PortalCategoryCreateView, PortalCategoryUpdateDeleteView,
     PortalCategoryListView, MasterCategoryView, MasterCategoryMappingView, MasterCategoryMappingsListView,
-    GroupCreateListAPIView, GroupRetrieveUpdateDeleteAPIView, GroupCategoriesListAPIView, MasterNewsPostPublishAPIView
+    GroupCreateListAPIView, GroupRetrieveUpdateDeleteAPIView, GroupCategoriesListAPIView, MasterNewsPostPublishAPIView,
+    NewsPostCreateAPIView
 )
 
 urlpatterns = [
@@ -28,5 +29,6 @@ urlpatterns = [
     path('group/categories/', GroupCategoriesListAPIView.as_view()),
     
     # News Distribution
+    path('news/create/', NewsPostCreateAPIView.as_view(),),
     path('publish/news/<int:pk>/', MasterNewsPostPublishAPIView.as_view()),
 ]

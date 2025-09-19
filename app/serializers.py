@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import (
-    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group
+    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost
 )
 
 class PortalSerializer(serializers.ModelSerializer):
@@ -89,3 +89,12 @@ class GroupListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Group
         fields = ['id', 'name', 'master_categories']
+
+
+class MasterNewsPostSerializer(serializers.ModelSerializer):
+    post_image = serializers.ImageField(required=False, allow_null=True, use_url=True)
+
+    class Meta:
+        model = MasterNewsPost
+        fields = '__all__'
+        read_only_fields = ["id", "created_at", "updated_at"]

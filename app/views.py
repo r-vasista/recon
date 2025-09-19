@@ -4,6 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.http import Http404
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -16,14 +17,14 @@ from .models import (
 )
 from .serializers import (
     PortalSerializer, PortalSafeSerializer, PortalCategorySerializer, MasterCategorySerializer, 
-    MasterCategoryMappingSerializer, GroupSerializer, GroupListSerializer
+    MasterCategoryMappingSerializer, GroupSerializer, GroupListSerializer, MasterNewsPostSerializer
 )
 from .utils import (
     success_response, error_response, generate_variation_with_gpt, get_portals_from_assignment
 )
 from .pagination import PaginationMixin
 from user.models import (
-    UserCategoryGroupAssignment
+    UserCategoryGroupAssignment, PortalUserMapping
 )
 
 class PortalListCreateView(APIView, PaginationMixin):
@@ -572,22 +573,36 @@ class MasterNewsPostPublishAPIView(APIView):
                     )
 
                     # 6. Build payload
+                    mapping = PortalUserMapping.objects.filter(
+                        user=user, portal=portal, status="MATCHED"
+                    ).first()
+                    if not mapping or not mapping.portal_user_id:
+                        return Response(
+                            error_response("No valid portal user mapping found for this user."),
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
                     payload = {
                         "post_cat": portal_category.external_id if portal_category else None,
                         "post_title": rewritten_title,
                         "post_short_des": rewritten_short,
                         "post_des": rewritten_content,
                         "post_tag": news_post.post_tag or "#recon",
-                        "author": user.id,
+                        "author": mapping.portal_user_id,
+
+                        # Dates
                         "Event_date": (news_post.Event_date or timezone.now().date()).isoformat(),
                         "Eventend_date": (news_post.Event_end_date or timezone.now().date()).isoformat(),
                         "schedule_date": (news_post.schedule_date or timezone.now()).isoformat(),
+
+                        # Flags
+                        "is_active": int(bool(news_post.latest_news)) if news_post.latest_news is not None else 0,
+                        "Event": int(bool(news_post.upcoming_event)) if news_post.upcoming_event is not None else 0,
+
                         "Head_Lines": int(bool(news_post.Head_Lines)) if news_post.Head_Lines is not None else 0,
                         "articles": int(bool(news_post.articles)) if news_post.articles is not None else 0,
                         "trending": int(bool(news_post.trending)) if news_post.trending is not None else 0,
-                        "BreakingNews": int(bool(news_post.breaking_news or news_post.BreakingNews)),
-                        "Event": int(bool(news_post.Event)) if news_post.Event is not None else 0,
-                        "counter": news_post.counter or 0,
+                        "BreakingNews": int(bool(news_post.BreakingNews)) if news_post.BreakingNews is not None else 0,
+                        "post_status": news_post.counter or 0,
                     }
                     files = {"post_image": news_post.post_image.open("rb")} if news_post.post_image else {}
 
@@ -648,3 +663,28 @@ class MasterNewsPostPublishAPIView(APIView):
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class NewsPostCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        try:
+            data = request.data.copy()
+            data["created_by"] = request.user.id
+
+            serializer = MasterNewsPostSerializer(data=data)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(
+                    success_response(
+                        serializer.data,
+                        "News post created successfully"
+                    ),
+                    status=status.HTTP_201_CREATED
+                )
+            return Response(error_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)

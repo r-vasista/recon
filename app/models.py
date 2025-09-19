@@ -101,7 +101,8 @@ class MasterNewsPost(BaseModel):
     
     # Optional overrides (subset of fields in each portal's NewsPost model)
     is_active = models.BooleanField(null=True, blank=True)
-    breaking_news = models.BooleanField(null=True, blank=True)
+    latest_news = models.BooleanField(null=True, blank=True)
+    upcoming_event = models.BooleanField(null=True, blank=True)
     Head_Lines = models.BooleanField(null=True, blank=True)
     articles = models.BooleanField(null=True, blank=True)
     trending = models.BooleanField(null=True, blank=True)
