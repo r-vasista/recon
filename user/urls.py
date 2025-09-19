@@ -1,7 +1,8 @@
 from django.urls import path
 from .views import (
     CheckUsernameAcrossPortalsAPIView, PortalUserMappingCreateAPIView, UserRegistrationAPIView, UserPortalMappingsListAPIView,
-    LoginView, UserAssignmentCreateAPIView, UserAssignmentListByUserAPIView, UserAssignmentListAPIView
+    LoginView, UserAssignmentCreateAPIView, UserAssignmentListByUserAPIView, UserAssignmentListAPIView, PortalUserMappingManualAPIView,
+    PortalUserMappingUpdateAPIView
 )
 
 urlpatterns = [
@@ -12,6 +13,8 @@ urlpatterns = [
     # User portal sync
     path('check/username/', CheckUsernameAcrossPortalsAPIView.as_view()),
     path('portal/user/mapping/', PortalUserMappingCreateAPIView.as_view()),
+    path('portal/user/mapping/manual/', PortalUserMappingManualAPIView.as_view()),
+    path('portal/user/mapping/update/<int:pk>/', PortalUserMappingUpdateAPIView.as_view()),
     path('user/mapped/portals/', UserPortalMappingsListAPIView.as_view()),
     
     # User group/category mapping

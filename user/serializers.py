@@ -124,3 +124,14 @@ class UserAssignmentListSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserCategoryGroupAssignment
         fields = ["id", "user", "group", "master_category", "created_at"]
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "email",
+            "is_active",
+            "date_joined",
+        ]

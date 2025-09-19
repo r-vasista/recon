@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework.permissions import IsAuthenticated
 
 from django.http import Http404
 from django.core.exceptions import ValidationError
@@ -13,11 +14,11 @@ from django.contrib.auth import get_user_model
 import requests
 
 from .models import (
-    PortalUserMapping, UserCategoryGroupAssignment
+    PortalUserMapping, UserCategoryGroupAssignment,
 )
 from .serializers import (
     PortalCheckResultSerializer, UserRegistrationSerializer, PortalUserMappingListSerializer, CustomTokenObtainPairSerializer,
-    UserAssignmentCreateSerializer, UserAssignmentListSerializer
+    UserAssignmentCreateSerializer, UserAssignmentListSerializer, PortalUserMappingSerializer
 )
 from .utils import (
     map_user_to_portals
@@ -249,5 +250,60 @@ class UserAssignmentListAPIView(APIView, PaginationMixin):
             page = self.paginate_queryset(queryset, request)
             serializer = UserAssignmentListSerializer(page, many=True)
             return self.get_paginated_response(serializer.data, message="All user assignments fetched successfully")
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class PortalUserMappingManualAPIView(APIView):
+    """
+    POST /api/portal-user-mapping/
+    Create a mapping between a Recon user and a portal.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            data = request.data.copy()
+
+            serializer = PortalUserMappingSerializer(data=data)
+            if serializer.is_valid():
+                mapping = serializer.save()
+                return Response(
+                    success_response(
+                        PortalUserMappingSerializer(mapping).data,
+                        "Portal user mapping created successfully"
+                    ),
+                    status=status.HTTP_201_CREATED
+                )
+            return Response(error_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class PortalUserMappingUpdateAPIView(APIView):
+    """
+    PUT /api/portal-user-mapping/{id}/
+    Update portal user mapping (status, portal_user_id, username, notes).
+    Only the owner can update their mapping.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, pk):
+        try:
+            mapping = get_object_or_404(PortalUserMapping, pk=pk)
+
+            serializer = PortalUserMappingSerializer(mapping, data=request.data, partial=True)
+            if serializer.is_valid():
+                mapping = serializer.save()
+                return Response(
+                    success_response(
+                        PortalUserMappingSerializer(mapping).data,
+                        "Portal user mapping updated successfully"
+                    ),
+                    status=status.HTTP_200_OK
+                )
+            return Response(error_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
+
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
