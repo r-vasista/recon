@@ -746,3 +746,18 @@ class UserPostsListAPIView(APIView, PaginationMixin):
 
         except Exception as e:
             return Response(error_response(str(e)))
+
+
+class AllNewsPostsAPIView(APIView, PaginationMixin):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            queryset = MasterNewsPost.objects.all().order_by("-created_at")
+            paginated_qs = self.paginate_queryset(queryset, request, view=self)
+            serializer = MasterNewsPostListSerializer(paginated_qs, many=True)
+
+            return self.get_paginated_response(serializer.data)
+
+        except Exception as e:
+            return Response(error_response(str(e)))
