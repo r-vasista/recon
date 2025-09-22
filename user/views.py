@@ -18,7 +18,7 @@ from .models import (
 )
 from .serializers import (
     PortalCheckResultSerializer, UserRegistrationSerializer, PortalUserMappingListSerializer, CustomTokenObtainPairSerializer,
-    UserAssignmentCreateSerializer, UserAssignmentListSerializer, PortalUserMappingSerializer
+    UserAssignmentCreateSerializer, UserAssignmentListSerializer, PortalUserMappingSerializer, UserSerializer
 )
 from .utils import (
     map_user_to_portals
@@ -307,3 +307,33 @@ class PortalUserMappingUpdateAPIView(APIView):
 
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class UserListAPIView(APIView, PaginationMixin):
+    """
+    GET /api/users/?search=<username>&page=1&page_size=10
+    Returns paginated users with optional username search filter.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            search = request.query_params.get("search", "").strip()
+            users = User.objects.all().order_by("-date_joined")
+
+            if search:
+                users = users.filter(Q(username__icontains=search))
+
+            paginated_qs = self.paginate_queryset(users, request, view=self)
+            serializer = UserSerializer(paginated_qs, many=True)
+
+            return self.get_paginated_response(
+                serializer.data,
+                message="User list fetched successfully"
+            )
+
+        except Exception as e:
+            return Response(
+                {"status": False, "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

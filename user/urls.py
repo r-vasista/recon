@@ -2,13 +2,14 @@ from django.urls import path
 from .views import (
     CheckUsernameAcrossPortalsAPIView, PortalUserMappingCreateAPIView, UserRegistrationAPIView, UserPortalMappingsListAPIView,
     LoginView, UserAssignmentCreateAPIView, UserAssignmentListByUserAPIView, UserAssignmentListAPIView, PortalUserMappingManualAPIView,
-    PortalUserMappingUpdateAPIView
+    PortalUserMappingUpdateAPIView, UserListAPIView
 )
 
 urlpatterns = [
-    # Login & Registration
+    # Login, Registration & users
     path('login/', LoginView.as_view(), name='token_obtain_pair'),
     path('registration/', UserRegistrationAPIView.as_view()),
+    path('users/list/', UserListAPIView.as_view()),
     
     # User portal sync
     path('check/username/', CheckUsernameAcrossPortalsAPIView.as_view()),
