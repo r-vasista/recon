@@ -11,13 +11,15 @@ from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.contrib.auth import get_user_model
+
 
 from .models import (
     Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution
 )
 from .serializers import (
     PortalSerializer, PortalSafeSerializer, PortalCategorySerializer, MasterCategorySerializer, 
-    MasterCategoryMappingSerializer, GroupSerializer, GroupListSerializer, MasterNewsPostSerializer
+    MasterCategoryMappingSerializer, GroupSerializer, GroupListSerializer, MasterNewsPostSerializer, MasterNewsPostListSerializer
 )
 from .utils import (
     success_response, error_response, generate_variation_with_gpt, get_portals_from_assignment
@@ -26,6 +28,8 @@ from .pagination import PaginationMixin
 from user.models import (
     UserCategoryGroupAssignment, PortalUserMapping
 )
+
+User = get_user_model()
 
 class PortalListCreateView(APIView, PaginationMixin):
     """
@@ -718,3 +722,27 @@ class PortalCreateAPIView(APIView):
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class UserPostsListAPIView(APIView, PaginationMixin):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            username = request.query_params.get("username")
+            if not username:
+                return Response(error_response("username query param is required"))
+
+            try:
+                user = User.objects.get(username=username)
+            except User.DoesNotExist:
+                return Response(error_response("User not found"))
+
+            queryset = MasterNewsPost.objects.filter(created_by=user).order_by("-created_at")
+            paginated_qs = self.paginate_queryset(queryset, request, view=self)
+            serializer = MasterNewsPostListSerializer(paginated_qs, many=True)
+
+            return self.get_paginated_response(serializer.data)
+
+        except Exception as e:
+            return Response(error_response(str(e)))

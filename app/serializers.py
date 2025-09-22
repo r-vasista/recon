@@ -98,3 +98,10 @@ class MasterNewsPostSerializer(serializers.ModelSerializer):
         model = MasterNewsPost
         fields = '__all__'
         read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class MasterNewsPostListSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = MasterNewsPost
+        fields = ['title', 'short_description', 'post_image', 'created_by', 'created_at', 'updated_at']

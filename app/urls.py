@@ -3,7 +3,7 @@ from .views import (
     PortalListCreateView, PortalDetailView, PortalCategoryCreateView, PortalCategoryUpdateDeleteView,
     PortalCategoryListView, MasterCategoryView, MasterCategoryMappingView, MasterCategoryMappingsListView,
     GroupCreateListAPIView, GroupRetrieveUpdateDeleteAPIView, GroupCategoriesListAPIView, MasterNewsPostPublishAPIView,
-    NewsPostCreateAPIView, PortalCreateAPIView
+    NewsPostCreateAPIView, PortalCreateAPIView, UserPostsListAPIView
 )
 
 urlpatterns = [
@@ -29,7 +29,8 @@ urlpatterns = [
     path('group/<int:pk>/', GroupRetrieveUpdateDeleteAPIView.as_view()),
     path('group/categories/', GroupCategoriesListAPIView.as_view()),
     
-    # News Distribution
+    # News and Distribution
     path('news/create/', NewsPostCreateAPIView.as_view(),),
     path('publish/news/<int:pk>/', MasterNewsPostPublishAPIView.as_view()),
+    path('user/news/posts/', UserPostsListAPIView.as_view()),
 ]
