@@ -688,3 +688,33 @@ class NewsPostCreateAPIView(APIView):
 
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class PortalCreateAPIView(APIView):
+    """
+    POST /api/portals/create/
+    Create a new Portal.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            serializer = PortalSerializer(data=request.data)
+            if serializer.is_valid():
+                portal = serializer.save()
+                return Response(
+                    success_response(
+                        PortalSerializer(portal).data,
+                        "Portal created successfully"
+                    ),
+                    status=status.HTTP_201_CREATED
+                )
+            return Response(
+                error_response(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

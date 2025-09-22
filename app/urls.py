@@ -3,13 +3,14 @@ from .views import (
     PortalListCreateView, PortalDetailView, PortalCategoryCreateView, PortalCategoryUpdateDeleteView,
     PortalCategoryListView, MasterCategoryView, MasterCategoryMappingView, MasterCategoryMappingsListView,
     GroupCreateListAPIView, GroupRetrieveUpdateDeleteAPIView, GroupCategoriesListAPIView, MasterNewsPostPublishAPIView,
-    NewsPostCreateAPIView
+    NewsPostCreateAPIView, PortalCreateAPIView
 )
 
 urlpatterns = [
     # Portals
     path('portals/list/', PortalListCreateView.as_view()),
     path('portal/detail/<int:id>/', PortalDetailView.as_view()),
+    path('create/portal/', PortalCreateAPIView.as_view()),
     
     # Portal Category
     path('portal/category/', PortalCategoryCreateView.as_view()),
