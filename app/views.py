@@ -19,7 +19,8 @@ from .models import (
 )
 from .serializers import (
     PortalSerializer, PortalSafeSerializer, PortalCategorySerializer, MasterCategorySerializer, 
-    MasterCategoryMappingSerializer, GroupSerializer, GroupListSerializer, MasterNewsPostSerializer, MasterNewsPostListSerializer
+    MasterCategoryMappingSerializer, GroupSerializer, GroupListSerializer, MasterNewsPostSerializer, MasterNewsPostListSerializer,
+    NewsDistributionListSerializer, NewsDistributionSerializer
 )
 from .utils import (
     success_response, error_response, generate_variation_with_gpt, get_portals_from_assignment
@@ -761,3 +762,71 @@ class AllNewsPostsAPIView(APIView, PaginationMixin):
 
         except Exception as e:
             return Response(error_response(str(e)))
+
+
+class NewsDistributionListAPIView(APIView, PaginationMixin):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            queryset = NewsDistribution.objects.select_related(
+                "news_post", "portal", "master_category", "portal_category"
+            ).order_by("-sent_at")
+
+            # ---- Filters ----
+            created_by = request.query_params.get("created_by")
+            portal = request.query_params.get("portal")
+            portal_category = request.query_params.get("portal_category")
+            status_filter = request.query_params.get("status")
+
+            if created_by:
+                queryset = queryset.filter(news_post__created_by_id=created_by)
+            if portal:
+                queryset = queryset.filter(portal_id=portal)
+            if portal_category:
+                queryset = queryset.filter(portal_category_id=portal_category)
+            if status_filter:
+                queryset = queryset.filter(status=status_filter.upper())
+
+            # ---- Pagination ----
+            paginated_qs = self.paginate_queryset(queryset, request, view=self)
+            serializer = NewsDistributionListSerializer(paginated_qs, many=True)
+
+            return self.get_paginated_response(
+                serializer.data,
+                message="News distribution list fetched successfully"
+            )
+        
+        except Exception as e:
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class NewsDistributionDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk, *args, **kwargs):
+        try:
+            try:
+                distribution = NewsDistribution.objects.select_related(
+                    "news_post", "portal", "master_category", "portal_category"
+                ).get(pk=pk)
+            except NewsDistribution.DoesNotExist:
+                return Response(
+                    error_response("News distribution not found"),
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            serializer = NewsDistributionSerializer(distribution)
+            return Response(
+                success_response(serializer.data, "News distribution detail fetched successfully"),
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

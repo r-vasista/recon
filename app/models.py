@@ -144,8 +144,6 @@ class NewsDistribution(BaseModel):
     ai_short_description = models.CharField(max_length=300, null=True, blank=True)
     ai_content = models.TextField(null=True, blank=True)
 
-    
-
     # Extendable JSON for future portal-specific fields
 
     status = models.CharField(

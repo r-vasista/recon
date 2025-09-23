@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import (
-    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost
+    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution
 )
 
 class PortalSerializer(serializers.ModelSerializer):
@@ -105,3 +105,24 @@ class MasterNewsPostListSerializer(serializers.ModelSerializer):
     class Meta:
         model = MasterNewsPost
         fields = ['title', 'short_description', 'post_image', 'created_by', 'created_at', 'updated_at']
+
+
+class NewsDistributionSerializer(serializers.ModelSerializer):
+    news_post_title = serializers.CharField(source="news_post.title", read_only=True)
+    portal_name = serializers.CharField(source="portal.name", read_only=True)
+    master_category_name = serializers.CharField(source="master_category.name", read_only=True)
+    portal_category_name = serializers.CharField(source="portal_category.name", read_only=True)
+
+    class Meta:
+        model = NewsDistribution
+        fields = "__all__"
+
+class NewsDistributionListSerializer(serializers.ModelSerializer):
+    news_post_title = serializers.CharField(source="news_post.title", read_only=True)
+    portal_name = serializers.CharField(source="portal.name", read_only=True)
+    master_category_name = serializers.CharField(source="master_category.name", read_only=True)
+    portal_category_name = serializers.CharField(source="portal_category.name", read_only=True)
+
+    class Meta:
+        model = NewsDistribution
+        fields = ['id', 'news_post_title', 'portal_name', 'master_category_name', 'portal_category_name', 'status', 'sent_at', 'retry_count']
