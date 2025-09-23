@@ -12,7 +12,11 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+from dotenv import load_dotenv
 import os
+
+# Load environment variables from the .env file (if present)
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -139,4 +143,4 @@ SIMPLE_JWT = {
 }
 
 
-OPEN_AI_KEY =  os.environ.get('OPEN_AI_KEY', '')
+OPEN_AI_KEY =  os.getenv('OPEN_AI_KEY')
