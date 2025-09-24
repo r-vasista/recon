@@ -830,3 +830,26 @@ class NewsDistributionDetailAPIView(APIView):
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class AdminStatsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            stats = {
+                "total_posts": MasterNewsPost.objects.count(),
+                "total_users": User.objects.count(),
+                "total_portals": Portal.objects.count(),
+                "total_master_categories": MasterCategory.objects.count(),
+            }
+
+            return Response(
+                success_response(stats, "Stats fetched successfully"),
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
