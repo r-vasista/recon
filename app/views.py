@@ -755,13 +755,36 @@ class AllNewsPostsAPIView(APIView, PaginationMixin):
     def get(self, request, *args, **kwargs):
         try:
             queryset = MasterNewsPost.objects.all().order_by("-created_at")
+
+            # Filters
+            created_by = request.query_params.get("created_by")
+            if created_by:
+                queryset = queryset.filter(created_by_id=created_by)
+
+            is_active = request.query_params.get("is_active")
+            if is_active is not None:
+                if is_active.lower() in ["true", "1"]:
+                    queryset = queryset.filter(is_active=True)
+                elif is_active.lower() in ["false", "0"]:
+                    queryset = queryset.filter(is_active=False)
+
+            # Search
+            search = request.query_params.get("search")
+            if search:
+                queryset = queryset.filter(
+                    Q(title__icontains=search) | Q(short_description__icontains=search)
+                )
+
             paginated_qs = self.paginate_queryset(queryset, request, view=self)
             serializer = MasterNewsPostListSerializer(paginated_qs, many=True)
 
-            return self.get_paginated_response(serializer.data)
+            return self.get_paginated_response(
+                serializer.data, 
+                message="News posts fetched successfully"
+            )
 
         except Exception as e:
-            return Response(error_response(str(e)))
+            return Response(error_response(str(e)), status=500)
 
 
 class NewsDistributionListAPIView(APIView, PaginationMixin):
