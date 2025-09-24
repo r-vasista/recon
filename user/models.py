@@ -5,7 +5,21 @@ from app.models import BaseModel, Portal, Group, MasterCategory
 
 User = get_user_model()
 
+class Role(models.Model):
+    name = models.CharField(max_length=50, unique=True)  # e.g., ADMIN, USER, EDITOR
 
+    def __str__(self):
+        return self.name
+
+
+class UserRole(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="role")
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="users")
+
+    def __str__(self):
+        return f"{self.user.username} -> {self.role.name}"
+    
+    
 class PortalUserMapping(BaseModel):
     """
     Maps a Recon user to their account in a specific portal.

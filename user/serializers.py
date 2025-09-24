@@ -35,9 +35,14 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
 
         # Add additional user info
+        role_name = None
+        if hasattr(self.user, "role") and self.user.role:  # user has UserRole relation
+            role_name = self.user.role.role.name
+
         data.update({
             "user_id": self.user.id,
-            "username": self.user.username
+            "username": self.user.username,
+            "role": role_name
         })
 
         return data
