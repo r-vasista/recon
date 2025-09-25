@@ -163,19 +163,52 @@ class PortalDetailView(APIView):
 
 
 class PortalCategoryCreateView(APIView):
-    """POST /api/portal-categories/"""
+    """POST /api/portal/category/"""
 
     def post(self, request):
         try:
             serializer = PortalCategorySerializer(data=request.data)
             if serializer.is_valid():
+                portal_name = serializer.validated_data["portal_name"]
+                external_id = serializer.validated_data["external_id"]
+
+                # Check if already exists
+                portal = Portal.objects.get(name=portal_name)
+                existing = PortalCategory.objects.filter(
+                    portal=portal, external_id=external_id
+                ).first()
+
+                if existing:
+                    return Response(
+                        success_response(
+                            {"id": existing.id, "name": existing.name},
+                            "Category already exists"
+                        ),
+                        status=status.HTTP_200_OK
+                    )
+
+                # Else create new
                 serializer.save()
-                return Response(success_response("Category created", serializer.data), status=status.HTTP_201_CREATED)
-            return Response(error_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    success_response(serializer.data, "Category created"),
+                    status=status.HTTP_201_CREATED
+                )
+
+            return Response(
+                error_response(serializer.errors),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         except Portal.DoesNotExist:
-            return Response(error_response("Portal not found"), status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                error_response("Portal not found"),
+                status=status.HTTP_404_NOT_FOUND
+            )
         except Exception as e:
-            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class PortalCategoryUpdateDeleteView(APIView):
