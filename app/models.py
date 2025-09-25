@@ -97,7 +97,7 @@ class MasterNewsPost(BaseModel):
     title = models.CharField(max_length=255)
     short_description = models.CharField(max_length=300)
     content = models.TextField()
-    post_image = models.ImageField(upload_to="media/posts/%Y/%m/%d/")
+    post_image = models.ImageField(upload_to="posts/%Y/%m/%d/")
     
     # Optional overrides (subset of fields in each portal's NewsPost model)
     is_active = models.BooleanField(null=True, blank=True)

@@ -112,10 +112,17 @@ class NewsDistributionSerializer(serializers.ModelSerializer):
     portal_name = serializers.CharField(source="portal.name", read_only=True)
     master_category_name = serializers.CharField(source="master_category.name", read_only=True)
     portal_category_name = serializers.CharField(source="portal_category.name", read_only=True)
+    news_post_image = serializers.SerializerMethodField()
 
     class Meta:
         model = NewsDistribution
         fields = "__all__"
+        
+    def get_news_post_image(self, obj):
+        request = self.context.get("request")
+        if obj.news_post.post_image and request:
+            return request.build_absolute_uri(obj.news_post.post_image.url)
+        return None
 
 class NewsDistributionListSerializer(serializers.ModelSerializer):
     news_post_title = serializers.CharField(source="news_post.title", read_only=True)
