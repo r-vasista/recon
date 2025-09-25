@@ -14,7 +14,7 @@ from django.contrib.auth import get_user_model
 import requests
 
 from .models import (
-    PortalUserMapping, UserCategoryGroupAssignment,
+    PortalUserMapping, UserCategoryGroupAssignment, Role, UserRole
 )
 from .serializers import (
     PortalCheckResultSerializer, UserRegistrationSerializer, PortalUserMappingListSerializer, CustomTokenObtainPairSerializer,
@@ -51,16 +51,27 @@ class UserRegistrationAPIView(APIView):
         # Create user
         user = serializer.save()
 
+        # Assign default role = USER
+        try:
+            default_role, _ = Role.objects.get_or_create(name="user")
+            UserRole.objects.create(user=user, role=default_role)
+        except Exception as e:
+            return Response(
+                error_response(f"User created but role assignment failed: {str(e)}"),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
         # Map across portals
         mappings = map_user_to_portals(user.id, user.username)
 
         response_data = {
             "user": serializer.data,
+            "role": "user",
             "portal_mappings": mappings
         }
 
         return Response(
-            success_response(response_data, "User registered and portal mappings created"),
+            success_response(response_data, "User registered with USER role and portal mappings created"),
             status=status.HTTP_201_CREATED
         )
 
