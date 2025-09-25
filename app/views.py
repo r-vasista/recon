@@ -642,7 +642,7 @@ class MasterNewsPostPublishAPIView(APIView):
                         "BreakingNews": int(bool(news_post.BreakingNews)) if news_post.BreakingNews is not None else 0,
                         "post_status": news_post.counter or 0,
                     }
-                    files = {"post_image": news_post.post_image.open("rb")} if news_post.post_image else {}
+                    files = {"post_image": open(news_post.post_image.path, "rb")} if news_post.post_image else {}
 
                     # 7. Call portal API
                     api_url = f'{portal.base_url}/api/create-news/'
@@ -875,7 +875,7 @@ class NewsDistributionDetailAPIView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
 
-            serializer = NewsDistributionSerializer(distribution)
+            serializer = NewsDistributionSerializer(distribution, context={"request": request})
             return Response(
                 success_response(serializer.data, "News distribution detail fetched successfully"),
                 status=status.HTTP_200_OK
