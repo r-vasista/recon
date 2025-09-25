@@ -846,7 +846,7 @@ class NewsDistributionListAPIView(APIView, PaginationMixin):
 
             # ---- Pagination ----
             paginated_qs = self.paginate_queryset(queryset, request, view=self)
-            serializer = NewsDistributionListSerializer(paginated_qs, many=True)
+            serializer = NewsDistributionListSerializer(paginated_qs, many=True, context={"request": request})
 
             return self.get_paginated_response(
                 serializer.data,
