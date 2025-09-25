@@ -8,7 +8,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.http import Http404
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Count, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.contrib.auth import get_user_model
@@ -860,6 +860,7 @@ class AdminStatsAPIView(APIView):
 
     def get(self, request, *args, **kwargs):
         try:
+            # Basic stats
             stats = {
                 "total_posts": MasterNewsPost.objects.count(),
                 "total_users": User.objects.count(),
@@ -867,10 +868,40 @@ class AdminStatsAPIView(APIView):
                 "total_master_categories": MasterCategory.objects.count(),
             }
 
+            # News Distribution stats
+            total_distributions = NewsDistribution.objects.count()
+            successful_distributions = NewsDistribution.objects.filter(status="SUCCESS").count()
+            failed_distributions = NewsDistribution.objects.filter(status="FAILED").count()
+            pending_distributions = NewsDistribution.objects.filter(status="PENDING").count()
+            retry_counts = NewsDistribution.objects.aggregate(total=Sum("retry_count"))["total"] or 0
+
+            # Portal wise distribution counts
+            portal_distribution = (
+                NewsDistribution.objects
+                .values("portal__name")
+                .annotate(total=Count("id"))
+                .order_by("portal__name")
+            )
+            portal_distribution_dict = {
+                item["portal__name"]: item["total"] for item in portal_distribution
+            }
+
+            stats.update({
+                "news_distribution": {
+                    "total_distributions": total_distributions,
+                    "successful_distributions": successful_distributions,
+                    "failed_distributions": failed_distributions,
+                    "pending_distributions": pending_distributions,
+                    "retry_counts": retry_counts,
+                    "portal_distribution_counts": portal_distribution_dict
+                }
+            })
+
             return Response(
                 success_response(stats, "Stats fetched successfully"),
                 status=status.HTTP_200_OK
             )
+
         except Exception as e:
             return Response(
                 error_response(str(e)),
