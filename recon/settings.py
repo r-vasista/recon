@@ -144,3 +144,6 @@ SIMPLE_JWT = {
 
 
 OPEN_AI_KEY =  os.getenv('OPEN_AI_KEY')
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
