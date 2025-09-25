@@ -907,3 +907,35 @@ class AdminStatsAPIView(APIView):
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class DomainDistributionStatsAPIView(APIView):
+    def get(self, request, *args, **kwargs):
+        try:
+            domains = Portal.objects.all()
+            stats = []
+
+            for domain in domains:
+                distributions = NewsDistribution.objects.filter(portal=domain)
+
+                domain_stats = {
+                    "portal_id": domain.id,
+                    "portal_name": domain.name,
+                    "total_distributions": distributions.count(),
+                    "successful_distributions": distributions.filter(status="SUCCESS").count(),
+                    "failed_distributions": distributions.filter(status="FAILED").count(),
+                    "pending_distributions": distributions.filter(status="PENDING").count(),
+                    "retry_counts": distributions.aggregate(total=Sum("retry_count"))["total"] or 0,
+                }
+                stats.append(domain_stats)
+
+            return Response(
+                success_response(stats, "Domain-wise distribution stats fetched successfully"),
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

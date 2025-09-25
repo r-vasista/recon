@@ -4,7 +4,7 @@ from .views import (
     PortalCategoryListView, MasterCategoryView, MasterCategoryMappingView, MasterCategoryMappingsListView,
     GroupCreateListAPIView, GroupRetrieveUpdateDeleteAPIView, GroupCategoriesListAPIView, MasterNewsPostPublishAPIView,
     NewsPostCreateAPIView, PortalCreateAPIView, UserPostsListAPIView, AllNewsPostsAPIView, NewsDistributionListAPIView,
-    NewsDistributionDetailAPIView, AdminStatsAPIView
+    NewsDistributionDetailAPIView, AdminStatsAPIView, DomainDistributionStatsAPIView
 )
 
 urlpatterns = [
@@ -40,4 +40,5 @@ urlpatterns = [
     
     # Stats 
     path('admin/stats/', AdminStatsAPIView.as_view()),
+    path('domain/distribution/', DomainDistributionStatsAPIView.as_view()),
 ]
