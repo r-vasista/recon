@@ -318,13 +318,27 @@ class MasterCategoryView(APIView):
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    
     def get(self, request):
         try:
+            mapped = request.query_params.get("mapped")
+
             queryset = MasterCategory.objects.all().order_by("name")
+
+            if mapped and mapped.lower() == "true":
+                queryset = queryset.filter(mappings__isnull=False).distinct()
+
             serializer = MasterCategorySerializer(queryset, many=True)
-            return Response(success_response(serializer.data, "Master categories fetched"), status=status.HTTP_200_OK)
+            return Response(
+                success_response(serializer.data, "Master categories fetched"),
+                status=status.HTTP_200_OK
+            )
+
         except Exception as e:
-            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     def put(self, request, pk):
         try:
