@@ -907,42 +907,98 @@ class AdminStatsAPIView(APIView):
 
     def get(self, request, *args, **kwargs):
         try:
-            # Basic stats
-            stats = {
-                "total_posts": MasterNewsPost.objects.count(),
-                "total_users": User.objects.count(),
-                "total_portals": Portal.objects.count(),
-                "total_master_categories": MasterCategory.objects.count(),
-            }
+            user = request.user
+            role = getattr(user.role, "role", None)  # UserRole relation
 
-            # News Distribution stats
-            total_distributions = NewsDistribution.objects.count()
-            successful_distributions = NewsDistribution.objects.filter(status="SUCCESS").count()
-            failed_distributions = NewsDistribution.objects.filter(status="FAILED").count()
-            pending_distributions = NewsDistribution.objects.filter(status="PENDING").count()
-            retry_counts = NewsDistribution.objects.aggregate(total=Sum("retry_count"))["total"] or 0
-
-            # Portal wise distribution counts
-            portal_distribution = (
-                NewsDistribution.objects
-                .values("portal__name")
-                .annotate(total=Count("id"))
-                .order_by("portal__name")
-            )
-            portal_distribution_dict = {
-                item["portal__name"]: item["total"] for item in portal_distribution
-            }
-
-            stats.update({
-                "news_distribution": {
-                    "total_distributions": total_distributions,
-                    "successful_distributions": successful_distributions,
-                    "failed_distributions": failed_distributions,
-                    "pending_distributions": pending_distributions,
-                    "retry_counts": retry_counts,
-                    "portal_distribution_counts": portal_distribution_dict
+            # If role is ADMIN → show global stats
+            if role and role.name.upper() == "MASTER":
+                stats = {
+                    "total_posts": MasterNewsPost.objects.count(),
+                    "total_users": User.objects.count(),
+                    "total_portals": Portal.objects.count(),
+                    "total_master_categories": MasterCategory.objects.count(),
                 }
-            })
+
+                # Global distribution stats
+                total_distributions = NewsDistribution.objects.count()
+                successful_distributions = NewsDistribution.objects.filter(status="SUCCESS").count()
+                failed_distributions = NewsDistribution.objects.filter(status="FAILED").count()
+                pending_distributions = NewsDistribution.objects.filter(status="PENDING").count()
+                retry_counts = NewsDistribution.objects.aggregate(total=Sum("retry_count"))["total"] or 0
+
+                portal_distribution = (
+                    NewsDistribution.objects
+                    .values("portal__name")
+                    .annotate(total=Count("id"))
+                    .order_by("portal__name")
+                )
+                portal_distribution_dict = {item["portal__name"]: item["total"] for item in portal_distribution}
+
+                stats.update({
+                    "news_distribution": {
+                        "total_distributions": total_distributions,
+                        "successful_distributions": successful_distributions,
+                        "failed_distributions": failed_distributions,
+                        "pending_distributions": pending_distributions,
+                        "retry_counts": retry_counts,
+                        "portal_distribution_counts": portal_distribution_dict
+                    }
+                })
+
+            # If role is USER → show scoped stats
+            elif role and role.name.upper() == "USER":
+                # Posts created by this user
+                user_posts = MasterNewsPost.objects.filter(created_by=user)
+
+                # Assignments
+                assignments = UserCategoryGroupAssignment.objects.filter(user=user)
+
+                # Portals assigned (unique set)
+                portals = set()
+                master_categories = set()
+                for assignment in assignments:
+                    if assignment.master_category:
+                        master_categories.add(assignment.master_category)
+                    if assignment.group:
+                        master_categories.update(assignment.group.master_categories.all())
+                    for portal, _ in get_portals_from_assignment(assignment):
+                        portals.add(portal)
+
+                # NewsDistribution stats (only for user's posts)
+                user_distributions = NewsDistribution.objects.filter(news_post__created_by=user)
+                total_distributions = user_distributions.count()
+                successful_distributions = user_distributions.filter(status="SUCCESS").count()
+                failed_distributions = user_distributions.filter(status="FAILED").count()
+                pending_distributions = user_distributions.filter(status="PENDING").count()
+                retry_counts = user_distributions.aggregate(total=Sum("retry_count"))["total"] or 0
+
+                portal_distribution = (
+                    user_distributions
+                    .values("portal__name")
+                    .annotate(total=Count("id"))
+                    .order_by("portal__name")
+                )
+                portal_distribution_dict = {item["portal__name"]: item["total"] for item in portal_distribution}
+
+                stats = {
+                    "total_posts": user_posts.count(),
+                    "total_portals": len(portals),
+                    "total_master_categories": len(master_categories),
+                    "news_distribution": {
+                        "total_distributions": total_distributions,
+                        "successful_distributions": successful_distributions,
+                        "failed_distributions": failed_distributions,
+                        "pending_distributions": pending_distributions,
+                        "retry_counts": retry_counts,
+                        "portal_distribution_counts": portal_distribution_dict
+                    }
+                }
+
+            else:
+                return Response(
+                    error_response("Role not recognized or not assigned"),
+                    status=status.HTTP_403_FORBIDDEN
+                )
 
             return Response(
                 success_response(stats, "Stats fetched successfully"),
