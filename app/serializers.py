@@ -126,6 +126,7 @@ class NewsDistributionSerializer(serializers.ModelSerializer):
 
 class NewsDistributionListSerializer(serializers.ModelSerializer):
     news_post_title = serializers.CharField(source="news_post.title", read_only=True)
+    news_post_created_by = serializers.CharField(source="news_post.created_by", read_only=True)
     news_post_image = serializers.SerializerMethodField()
     portal_name = serializers.CharField(source="portal.name", read_only=True)
     master_category_name = serializers.CharField(source="master_category.name", read_only=True)
@@ -134,7 +135,7 @@ class NewsDistributionListSerializer(serializers.ModelSerializer):
     class Meta:
         model = NewsDistribution
         fields = ['id', 'news_post_title', 'portal_name', 'master_category_name', 'portal_category_name', 'status', 
-                  'sent_at', 'retry_count', 'news_post_image',]
+                  'sent_at', 'retry_count', 'news_post_image', 'news_post_created_by']
     
     def get_news_post_image(self, obj):
         request = self.context.get("request")
