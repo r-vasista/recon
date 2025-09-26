@@ -554,6 +554,7 @@ class MasterNewsPostPublishAPIView(APIView):
     POST /api/master-news/{id}/publish/
     Publishes a MasterNewsPost to all portals assigned to the requesting user.
     Skips if already SUCCESS, retries if FAILED/PENDING.
+    User can exclude some portals by sending a list in request.data['excluded_portals'].
     """
 
     permission_classes = [IsAuthenticated]
@@ -567,20 +568,35 @@ class MasterNewsPostPublishAPIView(APIView):
 
             # 2. Find assignments linked to this user
             assignments = UserCategoryGroupAssignment.objects.filter(user=user)
-
             if not assignments.exists():
                 return Response(
                     error_response("No assignments found for this user."),
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
+            # 3. Handle excluded portals
+            excluded_portals = request.data.get("excluded_portals", [])
+            if not isinstance(excluded_portals, list):
+                excluded_portals = []
+
             results = []
 
-            # 3. Traverse all assignments → portals via mappings
+            # 4. Traverse all assignments → portals via mappings
             for assignment in assignments:
                 for portal, portal_category in get_portals_from_assignment(assignment):
-                    
-                    # 3.a Check existing distribution
+
+                    # Skip if portal is excluded
+                    if portal.id in excluded_portals or portal.name in excluded_portals:
+                        results.append({
+                            "portal": portal.name,
+                            "category": portal_category.name if portal_category else None,
+                            "success": False,
+                            "response": "Skipped manually by user",
+                            "retried": False,
+                        })
+                        continue
+
+                    # 4. Check existing distribution
                     distribution = NewsDistribution.objects.filter(
                         news_post=news_post,
                         portal=portal
@@ -595,14 +611,14 @@ class MasterNewsPostPublishAPIView(APIView):
                         })
                         continue
 
-                    # 4. Get portal-specific prompt
+                    # 5. Get portal-specific prompt
                     portal_prompt = getattr(portal, "prompt", None)
                     prompt_text = (
                         portal_prompt.prompt_text if portal_prompt else
                         "You are a news editor. Rewrite the given content slightly for clarity and engagement."
                     )
 
-                    # 5. Run GPT rewriting
+                    # 6. Run GPT rewriting
                     rewritten_title, rewritten_short, rewritten_content = generate_variation_with_gpt(
                         news_post.title,
                         news_post.short_description,
@@ -610,7 +626,7 @@ class MasterNewsPostPublishAPIView(APIView):
                         prompt_text
                     )
 
-                    # 6. Build payload
+                    # 7. Build payload
                     mapping = PortalUserMapping.objects.filter(
                         user=user, portal=portal, status="MATCHED"
                     ).first()
@@ -619,6 +635,7 @@ class MasterNewsPostPublishAPIView(APIView):
                             error_response("No valid portal user mapping found for this user."),
                             status=status.HTTP_400_BAD_REQUEST
                         )
+
                     payload = {
                         "post_cat": portal_category.external_id if portal_category else None,
                         "post_title": rewritten_title,
@@ -635,7 +652,6 @@ class MasterNewsPostPublishAPIView(APIView):
                         # Flags
                         "is_active": int(bool(news_post.latest_news)) if news_post.latest_news is not None else 0,
                         "Event": int(bool(news_post.upcoming_event)) if news_post.upcoming_event is not None else 0,
-
                         "Head_Lines": int(bool(news_post.Head_Lines)) if news_post.Head_Lines is not None else 0,
                         "articles": int(bool(news_post.articles)) if news_post.articles is not None else 0,
                         "trending": int(bool(news_post.trending)) if news_post.trending is not None else 0,
@@ -644,7 +660,7 @@ class MasterNewsPostPublishAPIView(APIView):
                     }
                     files = {"post_image": open(news_post.post_image.path, "rb")} if news_post.post_image else {}
 
-                    # 7. Call portal API
+                    # 8. Call portal API
                     api_url = f'{portal.base_url}/api/create-news/'
                     try:
                         response = requests.post(api_url, data=payload, files=files, timeout=10)
@@ -654,9 +670,8 @@ class MasterNewsPostPublishAPIView(APIView):
                         success = False
                         response_msg = str(e)
 
-                    # 8. Handle distribution record
+                    # 9. Handle distribution record
                     if distribution:
-                        # Retry update
                         distribution.retry_count += 1
                         distribution.status = "SUCCESS" if success else "FAILED"
                         distribution.response_message = response_msg
@@ -668,7 +683,6 @@ class MasterNewsPostPublishAPIView(APIView):
                             "ai_title", "ai_short_description", "ai_content", "sent_at"
                         ])
                     else:
-                        # New distribution
                         NewsDistribution.objects.create(
                             news_post=news_post,
                             portal=portal,
