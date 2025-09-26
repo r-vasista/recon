@@ -18,7 +18,7 @@ from .models import (
 )
 from .serializers import (
     PortalCheckResultSerializer, UserRegistrationSerializer, PortalUserMappingListSerializer, CustomTokenObtainPairSerializer,
-    UserAssignmentCreateSerializer, UserAssignmentListSerializer, PortalUserMappingSerializer, UserSerializer
+    UserAssignmentCreateSerializer, UserAssignmentListSerializer, PortalUserMappingSerializer, UserSerializer, UserWithPortalsSerializer
 )
 from .utils import (
     map_user_to_portals
@@ -414,6 +414,38 @@ class UnassignedUsersAPIView(APIView, PaginationMixin):
             serializer = UserSerializer(paginated_qs, many=True)
             return self.get_paginated_response(serializer.data, message="All un assigned users fetched successfully")
 
+        except Exception as e:
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class UserDetailsListAPIView(APIView):
+    """
+    GET /api/users/role-users/
+    Lists all users with role=USER and their assigned portals + categories + total posts.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            user_role = Role.objects.filter(name="user").first()
+            if not user_role:
+                return Response(
+                    error_response("USER role not defined"),
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            users = User.objects.filter(role__role=user_role)
+
+            serializer = UserWithPortalsSerializer(users, many=True)
+
+            return Response(
+                success_response(serializer.data, "User role users fetched successfully"),
+                status=status.HTTP_200_OK
+            )
         except Exception as e:
             return Response(
                 error_response(str(e)),

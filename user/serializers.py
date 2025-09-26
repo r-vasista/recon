@@ -3,13 +3,13 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
 
 from .models import (
-    PortalUserMapping, UserCategoryGroupAssignment
+    PortalUserMapping, UserCategoryGroupAssignment, Portal
 )
 from app.models import (
-    Group, MasterCategory
+    Group, MasterCategoryMapping, MasterCategory, NewsDistribution
 )
 from app.serializers import (
-    MasterCategoryListSerializer, GroupListSerializer
+    MasterCategoryListSerializer, GroupListSerializer, PortalCategorySerializer
 )
 User = get_user_model()
 
@@ -140,3 +140,72 @@ class UserSerializer(serializers.ModelSerializer):
             "is_active",
             "date_joined",
         ]
+        
+
+class PortalWithPostsSerializer(serializers.ModelSerializer):
+    categories = serializers.SerializerMethodField()
+    total_posts = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Portal
+        fields = ["id", "name", "categories", "total_posts"]
+
+    def get_categories(self, portal):
+        user = self.context.get("user")
+        if not user:
+            return []
+
+        assignments = UserCategoryGroupAssignment.objects.filter(user=user)
+        categories = []
+
+        for assignment in assignments:
+            if assignment.master_category:
+                mappings = MasterCategoryMapping.objects.filter(
+                    master_category=assignment.master_category, portal_category__portal=portal
+                ).select_related("portal_category")
+                categories.extend([m.portal_category for m in mappings])
+            elif assignment.group:
+                for mc in assignment.group.master_categories.all():
+                    mappings = MasterCategoryMapping.objects.filter(
+                        master_category=mc, portal_category__portal=portal
+                    ).select_related("portal_category")
+                    categories.extend([m.portal_category for m in mappings])
+
+        return PortalCategorySerializer(categories, many=True).data
+
+    def get_total_posts(self, portal):
+        user = self.context.get("user")
+        return NewsDistribution.objects.filter(
+            portal=portal,
+            news_post__created_by=user
+        ).count()
+
+
+class UserWithPortalsSerializer(serializers.ModelSerializer):
+    assigned_portals = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ["id", "username", "date_joined", "assigned_portals"]
+
+    def get_assigned_portals(self, user):
+        # Collect unique portals for the user
+        assignments = UserCategoryGroupAssignment.objects.filter(user=user)
+        portal_set = {}
+        for assignment in assignments:
+            if assignment.master_category:
+                mappings = MasterCategoryMapping.objects.filter(
+                    master_category=assignment.master_category
+                ).select_related("portal_category__portal")
+                for m in mappings:
+                    portal_set[m.portal_category.portal.id] = m.portal_category.portal
+            elif assignment.group:
+                for mc in assignment.group.master_categories.all():
+                    mappings = MasterCategoryMapping.objects.filter(
+                        master_category=mc
+                    ).select_related("portal_category__portal")
+                    for m in mappings:
+                        portal_set[m.portal_category.portal.id] = m.portal_category.portal
+
+        portals = list(portal_set.values())
+        return PortalWithPostsSerializer(portals, many=True, context={"user": user}).data
