@@ -351,7 +351,7 @@ class UserListAPIView(APIView, PaginationMixin):
 
 
 
-class UserAssignedPortalsView(APIView):
+class UserAssignedPortalsView(APIView, PaginationMixin):
     """
     GET /api/user/assigned-portals/
     Returns all unique portals assigned to the authenticated user.
@@ -385,6 +385,26 @@ class UserAssignedPortalsView(APIView):
                 success_response(data, "Assigned portals fetched"),
                 status=status.HTTP_200_OK
             )
+
+        except Exception as e:
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class UnassignedUsersAPIView(APIView, PaginationMixin):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            # Users without assignments
+            unassigned_users = User.objects.exclude(
+                id__in=UserCategoryGroupAssignment.objects.values_list("user_id", flat=True)
+            )
+            paginated_qs = self.paginate_queryset(unassigned_users, request, view=self)
+            serializer = UserSerializer(paginated_qs, many=True)
+            return self.get_paginated_response(serializer.data, message="All un assigned users fetched successfully")
 
         except Exception as e:
             return Response(
