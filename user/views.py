@@ -26,7 +26,7 @@ from .utils import (
 from app.models import (
     Portal
 )
-from app.utils import success_response, error_response
+from app.utils import success_response, error_response, get_portals_from_assignment
 from app.pagination import PaginationMixin
 
 
@@ -346,5 +346,48 @@ class UserListAPIView(APIView, PaginationMixin):
         except Exception as e:
             return Response(
                 {"status": False, "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+
+class UserAssignedPortalsView(APIView):
+    """
+    GET /api/user/assigned-portals/
+    Returns all unique portals assigned to the authenticated user.
+    """
+    
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            user = request.user
+            assignments = UserCategoryGroupAssignment.objects.filter(user=user)
+
+            if not assignments.exists():
+                return Response(
+                    error_response("No assignments found for this user."),
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Collect unique portals
+            portal_set = {}
+            for assignment in assignments:
+                for portal, portal_category in get_portals_from_assignment(assignment):
+                    portal_set[portal.id] = portal  # use dict to avoid duplicates
+
+            unique_portals = list(portal_set.values())
+
+            # Serialize response (only id + name for now, extend if needed)
+            data = [{"id": p.id, "name": p.name} for p in unique_portals]
+
+            return Response(
+                success_response(data, "Assigned portals fetched"),
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            return Response(
+                error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
