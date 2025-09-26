@@ -26,6 +26,9 @@ from .utils import (
 from app.models import (
     Portal
 )
+from app.serializers import (
+    PortalSafeSerializer
+)
 from app.utils import success_response, error_response, get_portals_from_assignment
 from app.pagination import PaginationMixin
 
@@ -356,7 +359,7 @@ class UserAssignedPortalsView(APIView, PaginationMixin):
     GET /api/user/assigned-portals/
     Returns all unique portals assigned to the authenticated user.
     """
-    
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -374,15 +377,20 @@ class UserAssignedPortalsView(APIView, PaginationMixin):
             portal_set = {}
             for assignment in assignments:
                 for portal, portal_category in get_portals_from_assignment(assignment):
-                    portal_set[portal.id] = portal  # use dict to avoid duplicates
+                    portal_set[portal.id] = portal  # dict ensures uniqueness
 
             unique_portals = list(portal_set.values())
 
-            # Serialize response (only id + name for now, extend if needed)
-            data = [{"id": p.id, "name": p.name} for p in unique_portals]
+            # Apply pagination
+            page = self.paginate_queryset(unique_portals, request, view=self)
+            if page is not None:
+                serializer = PortalSafeSerializer(page, many=True)
+                return self.get_paginated_response(serializer.data, message="Assigned portals fetched")
 
+            # If pagination not applied
+            serializer = PortalSafeSerializer(unique_portals, many=True)
             return Response(
-                success_response(data, "Assigned portals fetched"),
+                success_response(serializer.data, "Assigned portals fetched"),
                 status=status.HTTP_200_OK
             )
 
