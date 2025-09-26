@@ -1013,24 +1013,65 @@ class AdminStatsAPIView(APIView):
 
 
 class DomainDistributionStatsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, *args, **kwargs):
         try:
-            domains = Portal.objects.all()
+            user = request.user
+            role = getattr(user.role, "role", None)  # UserRole relation
+
             stats = []
 
-            for domain in domains:
-                distributions = NewsDistribution.objects.filter(portal=domain)
+            # ADMIN → all portals
+            if role and role.name.upper() == "MASTER":
+                domains = Portal.objects.all()
+                for domain in domains:
+                    distributions = NewsDistribution.objects.filter(portal=domain)
 
-                domain_stats = {
-                    "portal_id": domain.id,
-                    "portal_name": domain.name,
-                    "total_distributions": distributions.count(),
-                    "successful_distributions": distributions.filter(status="SUCCESS").count(),
-                    "failed_distributions": distributions.filter(status="FAILED").count(),
-                    "pending_distributions": distributions.filter(status="PENDING").count(),
-                    "retry_counts": distributions.aggregate(total=Sum("retry_count"))["total"] or 0,
-                }
-                stats.append(domain_stats)
+                    domain_stats = {
+                        "portal_id": domain.id,
+                        "portal_name": domain.name,
+                        "total_distributions": distributions.count(),
+                        "successful_distributions": distributions.filter(status="SUCCESS").count(),
+                        "failed_distributions": distributions.filter(status="FAILED").count(),
+                        "pending_distributions": distributions.filter(status="PENDING").count(),
+                        "retry_counts": distributions.aggregate(total=Sum("retry_count"))["total"] or 0,
+                    }
+                    stats.append(domain_stats)
+
+            # USER → only assigned portals + their own posts
+            elif role and role.name.upper() == "USER":
+                assignments = UserCategoryGroupAssignment.objects.filter(user=user)
+
+                # Collect unique portals assigned
+                assigned_portals = set()
+                for assignment in assignments:
+                    for portal, _ in get_portals_from_assignment(assignment):
+                        assigned_portals.add(portal)
+
+                # Loop through only assigned portals
+                for domain in assigned_portals:
+                    distributions = NewsDistribution.objects.filter(
+                        portal=domain,
+                        news_post__created_by=user  # only user's posts
+                    )
+
+                    domain_stats = {
+                        "portal_id": domain.id,
+                        "portal_name": domain.name,
+                        "total_distributions": distributions.count(),
+                        "successful_distributions": distributions.filter(status="SUCCESS").count(),
+                        "failed_distributions": distributions.filter(status="FAILED").count(),
+                        "pending_distributions": distributions.filter(status="PENDING").count(),
+                        "retry_counts": distributions.aggregate(total=Sum("retry_count"))["total"] or 0,
+                    }
+                    stats.append(domain_stats)
+
+            else:
+                return Response(
+                    error_response("Role not recognized or not assigned"),
+                    status=status.HTTP_403_FORBIDDEN
+                )
 
             return Response(
                 success_response(stats, "Domain-wise distribution stats fetched successfully"),
