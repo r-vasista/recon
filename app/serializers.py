@@ -69,7 +69,7 @@ class MasterCategoryMappingSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MasterCategoryMapping
-        fields = ["id", "master_category", "master_category_name", "portal_category", "portal_name", "portal_category_name"]
+        fields = ["id", "master_category", "master_category_name", "portal_category", "portal_name", "portal_category_name", "use_default_content"]
 
 
 class GroupSerializer(serializers.ModelSerializer):

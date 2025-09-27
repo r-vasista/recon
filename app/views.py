@@ -376,12 +376,14 @@ class MasterCategoryMappingView(APIView):
         Example Payload:
         {
             "master_category": 1,
-            "portal_categories": [5, 6, 7]
+            "portal_categories": [5, 6, 7],
+            "use_default_content": true   # optional
         }
         """
         try:
             master_category_id = request.data.get("master_category")
             portal_category_ids = request.data.get("portal_categories", [])
+            use_default_content = request.data.get("use_default_content", False)
 
             if not master_category_id or not portal_category_ids:
                 return Response(
@@ -397,11 +399,16 @@ class MasterCategoryMappingView(APIView):
                     mapping, created = MasterCategoryMapping.objects.get_or_create(
                         master_category_id=master_category_id,
                         portal_category_id=portal_cat_id,
+                        defaults={"use_default_content": use_default_content},  # set on create
                     )
-                    if created:
-                        created_mappings.append(mapping)
-                    else:
+                    if not created:
+                        # If already exists, maybe update use_default_content if provided
+                        if mapping.use_default_content != use_default_content:
+                            mapping.use_default_content = use_default_content
+                            mapping.save(update_fields=["use_default_content"])
                         skipped_mappings.append(portal_cat_id)
+                    else:
+                        created_mappings.append(mapping)
                 except Exception as e:
                     skipped_mappings.append({"id": portal_cat_id, "error": str(e)})
 
@@ -410,11 +417,13 @@ class MasterCategoryMappingView(APIView):
                 "created": serializer.data,
                 "skipped": skipped_mappings,
             }
-            return Response(success_response(response_data,"Mappings processed"), status=status.HTTP_201_CREATED)
+            return Response(
+                success_response(response_data, "Mappings processed"),
+                status=status.HTTP_201_CREATED,
+            )
 
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
     def get(self, request):
         try:
             queryset = MasterCategoryMapping.objects.all()
@@ -431,6 +440,39 @@ class MasterCategoryMappingView(APIView):
 
             serializer = MasterCategoryMappingSerializer(queryset, many=True)
             return Response(success_response("Mappings fetched", serializer.data), status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def patch(self, request, pk):
+        """
+        Example Payload:
+        {
+            "use_default_content": true
+        }
+        """
+        try:
+            mapping = MasterCategoryMapping.objects.get(pk=pk)
+            use_default_content = request.data.get("use_default_content")
+
+            if use_default_content is None:
+                return Response(
+                    error_response("use_default_content field is required"),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            mapping.use_default_content = bool(use_default_content)
+            mapping.save(update_fields=["use_default_content"])
+
+            serializer = MasterCategoryMappingSerializer(mapping)
+            return Response(
+                success_response(serializer.data, "Mapping updated successfully"),
+                status=status.HTTP_200_OK,
+            )
+        except MasterCategoryMapping.DoesNotExist:
+            return Response(
+                error_response("Mapping not found"),
+                status=status.HTTP_404_NOT_FOUND,
+            )
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
