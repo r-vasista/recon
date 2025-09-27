@@ -625,21 +625,32 @@ class MasterNewsPostPublishAPIView(APIView):
                         })
                         continue
 
-                    # 5. Get portal-specific prompt
-                    portal_prompt = getattr(portal, "prompt", None)
-                    prompt_text = (
-                        portal_prompt.prompt_text if portal_prompt else
-                        "You are a news editor. Rewrite the given content slightly for clarity and engagement."
-                    )
+                    # 5. Check if this portal-category mapping requires default content
+                    mapping_record = MasterCategoryMapping.objects.filter(
+                        master_category=assignment.master_category,
+                        portal_category=portal_category
+                    ).first()
 
-                    # 6. Run GPT rewriting
-                    rewritten_title, rewritten_short, rewritten_content = generate_variation_with_gpt(
-                        news_post.title,
-                        news_post.short_description,
-                        news_post.content,
-                        prompt_text
-                    )
+                    if mapping_record and mapping_record.use_default_content:
+                        # Use original content (no GPT rewrite)
+                        rewritten_title = news_post.title
+                        rewritten_short = news_post.short_description
+                        rewritten_content = news_post.content
+                    else:
+                        # 6. Run GPT rewriting
+                        portal_prompt = getattr(portal, "prompt", None)
+                        prompt_text = (
+                            portal_prompt.prompt_text if portal_prompt else
+                            "You are a news editor. Rewrite the given content slightly for clarity and engagement."
+                        )
 
+                        rewritten_title, rewritten_short, rewritten_content = generate_variation_with_gpt(
+                            news_post.title,
+                            news_post.short_description,
+                            news_post.content,
+                            prompt_text
+                        )
+                        
                     # 7. Build payload
                     mapping = PortalUserMapping.objects.filter(
                         user=user, portal=portal, status="MATCHED"

@@ -26,9 +26,9 @@ class MasterCategoryAdmin(admin.ModelAdmin):
 
 @admin.register(MasterCategoryMapping)
 class MasterCategoryMappingAdmin(admin.ModelAdmin):
-    list_display = ['id', 'master_category', 'portal_category']
-    search_fields = ['id', 'master_category', 'portal_category']
-    list_filter = ['id', 'master_category', 'portal_category']
+    list_display = ['id', 'master_category', 'portal_category', 'use_default_content']
+    search_fields = ['id', 'master_category', 'portal_category', 'use_default_content']
+    list_filter = ['id', 'master_category', 'portal_category', 'use_default_content']
 
 
 @admin.register(Group)
