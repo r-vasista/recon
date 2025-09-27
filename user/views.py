@@ -18,7 +18,8 @@ from .models import (
 )
 from .serializers import (
     PortalCheckResultSerializer, UserRegistrationSerializer, PortalUserMappingListSerializer, CustomTokenObtainPairSerializer,
-    UserAssignmentCreateSerializer, UserAssignmentListSerializer, PortalUserMappingSerializer, UserSerializer, UserWithPortalsSerializer
+    UserAssignmentCreateSerializer, UserAssignmentListSerializer, PortalUserMappingSerializer, UserSerializer, UserWithPortalsSerializer,
+    UserAssignmentRemoveSerializer
 )
 from .utils import (
     map_user_to_portals
@@ -451,3 +452,50 @@ class UserDetailsListAPIView(APIView):
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class UserAssignmentRemoveAPIView(APIView):
+    """
+    DELETE /api/user-assignments/remove/
+    Example Payload:
+    {
+        "user_id": 5,
+        "master_category_id": 2
+    }
+    OR
+    {
+        "user_id": 5,
+        "group_id": 3
+    }
+    """
+
+    def delete(self, request):
+        try:
+            serializer = UserAssignmentRemoveSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(error_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
+
+            user_id = serializer.validated_data["user_id"]
+            master_category_id = serializer.validated_data.get("master_category_id")
+            group_id = serializer.validated_data.get("group_id")
+
+            qs = UserCategoryGroupAssignment.objects.filter(user_id=user_id)
+            if master_category_id:
+                qs = qs.filter(master_category_id=master_category_id)
+            if group_id:
+                qs = qs.filter(group_id=group_id)
+
+            if not qs.exists():
+                return Response(
+                    error_response("No matching assignment found."),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            deleted_count = qs.delete()[0]
+            return Response(
+                success_response({"deleted_count": deleted_count}, "Assignment(s) removed successfully."),
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)

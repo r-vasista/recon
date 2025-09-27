@@ -209,3 +209,14 @@ class UserWithPortalsSerializer(serializers.ModelSerializer):
 
         portals = list(portal_set.values())
         return PortalWithPostsSerializer(portals, many=True, context={"user": user}).data
+
+
+class UserAssignmentRemoveSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField()
+    master_category_id = serializers.IntegerField(required=False)
+    group_id = serializers.IntegerField(required=False)
+
+    def validate(self, data):
+        if not data.get("master_category_id") and not data.get("group_id"):
+            raise serializers.ValidationError("Either master_category_id or group_id must be provided.")
+        return data
