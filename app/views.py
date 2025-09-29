@@ -1159,3 +1159,39 @@ class DomainDistributionStatsAPIView(APIView):
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+            
+
+class AllPortalsTagsLiveAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        portals = Portal.objects.all()
+        all_tags = {}
+        # Use dict with slug as key to automatically deduplicate
+
+        for portal in portals:
+            try:
+                api_url = f"{portal.base_url}/api/tags/"
+                response = requests.get(api_url, timeout=10)
+                if response.status_code == 200:
+                    res_json = response.json()
+                    # adapt to actual response structure
+                    tags = res_json.get("data") or []  # <-- extract the list
+                    for tag in tags:
+                        slug = tag.get("slug") or tag.get("name", "").lower().replace(" ", "-")
+                        if slug not in all_tags:
+                            all_tags[slug] = {
+                                "name": tag.get("name"),
+                                "slug": slug,
+                                "portals": [portal.name]  # keep track of portals that have this tag
+                            }
+                        else:
+                            all_tags[slug]["portals"].append(portal.name)
+            except Exception as e:
+                # optional: log portal fetch error, skip failing portal
+                continue
+
+        # convert dict values to list
+        unique_tags = list(all_tags.values())
+
+        return Response({"status": True, "tags": unique_tags})

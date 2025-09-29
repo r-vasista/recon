@@ -4,7 +4,7 @@ from .views import (
     PortalCategoryListView, MasterCategoryView, MasterCategoryMappingView, MasterCategoryMappingsListView,
     GroupCreateListAPIView, GroupRetrieveUpdateDeleteAPIView, GroupCategoriesListAPIView, MasterNewsPostPublishAPIView,
     NewsPostCreateAPIView, PortalCreateAPIView, UserPostsListAPIView, AllNewsPostsAPIView, NewsDistributionListAPIView,
-    NewsDistributionDetailAPIView, AdminStatsAPIView, DomainDistributionStatsAPIView
+    NewsDistributionDetailAPIView, AdminStatsAPIView, DomainDistributionStatsAPIView, AllPortalsTagsLiveAPIView
 )
 
 urlpatterns = [
@@ -12,6 +12,7 @@ urlpatterns = [
     path('portals/list/', PortalListCreateView.as_view()),
     path('portal/detail/<int:id>/', PortalDetailView.as_view()),
     path('create/portal/', PortalCreateAPIView.as_view()),
+    path('all/tags/', AllPortalsTagsLiveAPIView.as_view()),
     
     # Portal Category
     path('portal/category/', PortalCategoryCreateView.as_view()),
