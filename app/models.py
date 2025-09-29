@@ -2,6 +2,7 @@ import uuid
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.utils.text import slugify
 
 User = get_user_model()
 
@@ -114,6 +115,10 @@ class MasterNewsPost(BaseModel):
     schedule_date = models.DateTimeField(null=True, blank=True)
     post_tag = models.TextField(null=True, blank=True)
     counter=models.PositiveIntegerField(null=True, blank=True)
+    
+    # SEO fields
+    meta_title = models.CharField(max_length=255, null=True, blank=True)
+    slug = models.SlugField(max_length=255, unique=True, blank=True)
 
     # Meta info
     created_at = models.DateTimeField(auto_now_add=True)
@@ -121,6 +126,18 @@ class MasterNewsPost(BaseModel):
 
     def __str__(self):
         return self.title
+    
+    def save(self, *args, **kwargs):
+        # Auto-generate slug if not provided
+        if not self.slug:
+            base_slug = slugify(self.title)
+            slug = base_slug
+            counter = 1
+            while MasterNewsPost.objects.filter(slug=slug).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
 
 
 class NewsDistribution(BaseModel):
@@ -144,6 +161,8 @@ class NewsDistribution(BaseModel):
     ai_title = models.CharField(max_length=255, null=True, blank=True)
     ai_short_description = models.CharField(max_length=300, null=True, blank=True)
     ai_content = models.TextField(null=True, blank=True)
+    ai_meta_title = models.CharField(max_length=255, null=True, blank=True)
+    ai_slug = models.SlugField(max_length=255, null=True, blank=True)        
 
     # Extendable JSON for future portal-specific fields
 

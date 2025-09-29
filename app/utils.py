@@ -5,6 +5,8 @@ from app.models import MasterCategoryMapping
 from openai import OpenAI
 
 from django.conf import settings
+from django.utils.text import slugify
+
 client = OpenAI(api_key=settings.OPEN_AI_KEY)
 
 def success_response(data, message = None):
@@ -13,22 +15,25 @@ def success_response(data, message = None):
 def error_response(message):
     return {"status": False, "message":message}
 
-def generate_variation_with_gpt(title, short_desc, desc, prompt_text):
+def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title=None, slug=None):
     """
     Generate rephrased version of news fields using GPT.
     Always tries to parse JSON safely.
-    Returns (title, short_desc, desc).
+    Returns (title, short_desc, desc, meta_title, slug).
     """
     print('started ai')
 
     user_content = f"""
-    Rewrite the following news content. 
-    Return ONLY valid JSON with keys: title, short_description, description.
+    Rewrite the following news content.
+    Return ONLY valid JSON with keys: title, short_description, description, meta_title, slug.
+    Slug must be a clean URL-safe version of meta_title (lowercase, hyphen separated).
 
     {{
         "title": "{title}",
         "short_description": "{short_desc}",
-        "description": "{desc}"
+        "description": "{desc}",
+        "meta_title": "{meta_title or title}",
+        "slug": "{slug or slugify(meta_title or title)}"
     }}
     """
 
@@ -42,7 +47,7 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text):
         )
 
         content = response.output_text.strip()
-        print("raw gpt response:", content[:500])  # debug (first 500 chars)
+        print("raw gpt response:", content[:500])  # debug
 
         # Try strict JSON parse
         try:
@@ -62,13 +67,20 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text):
             data.get("title", title),
             data.get("short_description", short_desc),
             data.get("description", desc),
+            data.get("meta_title", meta_title or title),
+            data.get("slug", slug or slugify(meta_title or title)),
         )
 
     except Exception as e:
         print("ai error", str(e))
         # fallback if GPT fails
-        return title, short_desc, desc
-
+        return (
+            title,
+            short_desc,
+            desc,
+            meta_title or title,
+            slug or slugify(meta_title or title),
+        )
 
 def get_portals_from_assignment(assignment):
     """

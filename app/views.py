@@ -12,6 +12,7 @@ from django.db.models import Q, Count, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.contrib.auth import get_user_model
+from django.utils.text import slugify
 
 
 from .models import (
@@ -678,6 +679,8 @@ class MasterNewsPostPublishAPIView(APIView):
                         rewritten_title = news_post.title
                         rewritten_short = news_post.short_description
                         rewritten_content = news_post.content
+                        rewritten_meta = news_post.meta_title or news_post.title
+                        rewritten_slug = news_post.slug or slugify(news_post.meta_title or news_post.title)
                     else:
                         # 6. Run GPT rewriting
                         portal_prompt = getattr(portal, "prompt", None)
@@ -686,11 +689,13 @@ class MasterNewsPostPublishAPIView(APIView):
                             "You are a news editor. Rewrite the given content slightly for clarity and engagement."
                         )
 
-                        rewritten_title, rewritten_short, rewritten_content = generate_variation_with_gpt(
+                        rewritten_title, rewritten_short, rewritten_content, rewritten_meta, rewritten_slug = generate_variation_with_gpt(
                             news_post.title,
                             news_post.short_description,
                             news_post.content,
-                            prompt_text
+                            prompt_text,
+                            news_post.meta_title,
+                            news_post.slug,
                         )
                         
                     # 7. Build payload
@@ -708,7 +713,9 @@ class MasterNewsPostPublishAPIView(APIView):
                         "post_title": rewritten_title,
                         "post_short_des": rewritten_short,
                         "post_des": rewritten_content,
-                        "post_tag": news_post.post_tag or "#recon",
+                        "meta_title": rewritten_meta,
+                        "slug": rewritten_slug,
+                        "post_tag": news_post.post_tag or "",
                         "author": mapping.portal_user_id,
 
                         # Dates
@@ -759,6 +766,8 @@ class MasterNewsPostPublishAPIView(APIView):
                             ai_title=rewritten_title,
                             ai_short_description=rewritten_short,
                             ai_content=rewritten_content,
+                            ai_meta_title = rewritten_meta,
+                            ai_slug = rewritten_slug,
                             status="SUCCESS" if success else "FAILED",
                             response_message=response_msg,
                             retry_count=0,
