@@ -42,7 +42,9 @@ class PortalCategory(BaseModel):
     """Categories belonging to a Portal."""
     portal = models.ForeignKey(Portal, on_delete=models.CASCADE, related_name="categories")
     name = models.CharField(max_length=150)
-    external_id = models.CharField(max_length=100)  # category id in that portal
+    external_id = models.CharField(max_length=100)
+    parent_name = models.CharField(max_length=255, null=True, blank=True)  # 🔹 store parent category name
+    parent_external_id = models.CharField(max_length=255, null=True, blank=True) 
 
     class Meta:
         unique_together = ("portal", "external_id")
@@ -151,11 +153,14 @@ class NewsDistribution(BaseModel):
     portal = models.ForeignKey(Portal, on_delete=models.CASCADE)
     portal_category = models.ForeignKey(PortalCategory, on_delete=models.SET_NULL, null=True, blank=True)
     group = models.ForeignKey(
-        "Group", on_delete=models.SET_NULL, null=True, blank=True, related_name="news_distributions"
+        Group, on_delete=models.SET_NULL, null=True, blank=True, related_name="news_distributions"
     )
     master_category = models.ForeignKey(
         MasterCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name="news_distributions"
     )
+    portal_news_id = models.CharField(max_length=255, null=True, blank=True,
+                                      help_text="ID of the NewsPost object in the target portal.")
+
     extra_data = models.JSONField(null=True, blank=True)
     
     ai_title = models.CharField(max_length=255, null=True, blank=True)

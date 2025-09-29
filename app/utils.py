@@ -24,7 +24,8 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title
     print('started ai')
 
     user_content = f"""
-    Rewrite the following news content.
+    Rewrite the following news content. You must preserve all HTML tags, attributes, styles, images, links, lists, and formatting. Only update the textual content inside the HTML elements. Do not remove, add, or modify any HTML structure.
+
     Return ONLY valid JSON with keys: title, short_description, description, meta_title, slug.
     Slug must be a clean URL-safe version of meta_title (lowercase, hyphen separated).
 

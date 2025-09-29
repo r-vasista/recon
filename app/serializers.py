@@ -35,7 +35,7 @@ class PortalCategorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PortalCategory
-        fields = ["id", "portal_name", "external_id", "name"]
+        fields = ["id", "external_id", "name", "portal_name", "parent_name", "parent_external_id"]
 
     def create(self, validated_data):
         portal_name = validated_data.pop("portal_name")

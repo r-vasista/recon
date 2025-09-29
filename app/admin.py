@@ -12,9 +12,9 @@ class PortalAdmin(admin.ModelAdmin):
 
 @admin.register(PortalCategory)
 class PortalCategoryAdmin(admin.ModelAdmin):
-    list_display = ['id', 'portal', 'name', 'external_id']
-    search_fields =['id', 'name', 'portal', 'external_id']
-    list_filter = ['id', 'name', 'portal', 'external_id']
+    list_display = ['id', 'portal', 'name', 'external_id', "parent_name", "parent_external_id"]
+    search_fields =['id', 'portal', 'name', 'external_id', "parent_name", "parent_external_id"]
+    list_filter = ['id', 'portal', 'name', 'external_id', "parent_name", "parent_external_id"]
 
 
 @admin.register(MasterCategory)
