@@ -24,10 +24,18 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title
     print('started ai')
 
     user_content = f"""
-    Rewrite the following news content. You must preserve all HTML tags, attributes, styles, images, links, lists, and formatting. Only update the textual content inside the HTML elements. Do not remove, add, or modify any HTML structure.
+    Rewrite the following news content for the portal: {{portal_name}}. 
+    Each portal must have a unique variation of the rewritten content.
+
+    Rules:
+    - Preserve all HTML tags, attributes, styles, images, links, lists, and formatting inside the description.
+    - Rewrite the textual content for: title, short_description, description, and meta_title.
+    - The short_description must be a concise 1–2 sentence summary of the rewritten description.
+    - Generate a new slug as a clean, URL-safe version of the rewritten meta_title (lowercase, hyphen separated).
+    - Ensure wording differs slightly for each portal, but keep meaning intact.
+    - Do not remove, add, or modify any HTML structure.
 
     Return ONLY valid JSON with keys: title, short_description, description, meta_title, slug.
-    Slug must be a clean URL-safe version of meta_title (lowercase, hyphen separated).
 
     {{
         "title": "{title}",
@@ -37,6 +45,7 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title
         "slug": "{slug or slugify(meta_title or title)}"
     }}
     """
+
 
     try:
         response = client.responses.create(
