@@ -131,15 +131,28 @@ class NewsDistributionListSerializer(serializers.ModelSerializer):
     portal_name = serializers.CharField(source="portal.name", read_only=True)
     master_category_name = serializers.CharField(source="master_category.name", read_only=True)
     portal_category_name = serializers.CharField(source="portal_category.name", read_only=True)
+    live_url = serializers.SerializerMethodField()
 
     class Meta:
         model = NewsDistribution
         fields = ['id', 'news_post_title', 'portal_name', 'master_category_name', 'portal_category_name', 'status', 
                   'sent_at', 'retry_count', 'news_post_image', 'news_post_created_by', 'ai_title', 'ai_short_description',
-                  'ai_content', 'ai_meta_title', 'ai_slug']
+                  'ai_content', 'ai_meta_title', 'ai_slug', 'live_url']
     
     def get_news_post_image(self, obj):
         request = self.context.get("request")
         if obj.news_post.post_image and request:
             return request.build_absolute_uri(obj.news_post.post_image.url)
+        return None
+    
+    def get_live_url(self, obj):
+        """
+        Returns the live URL for the distributed news post, following the pattern:
+        <portal.domain_url>/<ai_slug>
+        Example: https://www.gccnews24.com/sresan-pharma-owner-arrested-after-children-die-from-toxic-syrup
+        """
+        if obj.portal and obj.portal.domain_url and obj.ai_slug:
+            domain = obj.portal.domain_url.rstrip("/") 
+            slug = obj.ai_slug.lstrip("/")
+            return f"{domain}/{slug}"
         return None

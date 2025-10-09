@@ -30,8 +30,8 @@ class BaseModel(models.Model):
 class Portal(BaseModel):
     """Represents an external news portal (other Django project)."""
     name = models.CharField(max_length=150, unique=True)
-    base_url = models.URLField(help_text="API's Base url ex: https://domain.com/portal_name")
-    domain_url = models.URLField(help_text="Just the domain url ex: https://domain.com")
+    base_url = models.URLField(help_text="API's url ex: https://domain.com/portal_name")
+    domain_url = models.URLField(help_text="Just the domain url ex: https://domain.com", null=True)
     api_key = models.CharField(max_length=255)
     secret_key = models.CharField(max_length=255)
 
