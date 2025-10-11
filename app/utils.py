@@ -25,6 +25,17 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title
 
     user_content = f"""
     Rewrite the following news content for the portal
+    Each portal must have a unique variation of the rewritten content.
+
+    Rules:
+    - Preserve all HTML tags, attributes, styles, images, links, lists, and formatting inside the description.
+    - Rewrite the textual content for: title, short_description, description, and meta_title.
+    - The short_description must be a concise 1–2 sentence less than 160 characters, summary of the rewritten description.
+    - Generate a new slug as a clean, URL-safe version of the rewritten meta_title (lowercase, hyphen separated).
+    - Ensure wording differs slightly for each portal, but keep meaning intact.
+    - Do not remove, add, or modify any HTML structure.
+
+    Return ONLY valid JSON with keys: title, short_description, description, meta_title, slug.
 
     {{
         "title": "{title}",
