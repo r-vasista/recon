@@ -4,6 +4,8 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.utils.text import slugify
 
+from django.core.exceptions import ValidationError
+
 User = get_user_model()
 
 class BaseModel(models.Model):
@@ -189,12 +191,50 @@ class NewsDistribution(BaseModel):
 
 
 class PortalPrompt(models.Model):
-    """
-    Custom AI prompt configuration for each portal.
-    If missing → fallback to default/general prompt.
-    """
-    portal = models.OneToOneField(Portal, on_delete=models.CASCADE, related_name="prompt")
-    prompt_text = models.TextField()
+    """Stores custom AI rewrite prompts for each portal (or globally)."""
+    portal = models.OneToOneField(
+        'Portal',
+        on_delete=models.CASCADE,
+        related_name='prompt',
+        null=True,
+        blank=True,
+        help_text="Optional — if empty, use this prompt globally."
+    )
+    name = models.CharField(max_length=150, null=True, help_text="Prompt name, e.g., 'Default Rewrite Prompt'")
+    prompt_text = models.TextField(help_text="The text prompt that controls GPT rewriting behavior.")
+    is_active = models.BooleanField(default=True)
+    is_global_prompt = models.BooleanField(
+        default=False,
+        help_text="If true, this prompt applies globally when no portal-specific prompt exists."
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        verbose_name = "Portal Prompt"
+        verbose_name_plural = "Portal Prompts"
+
+    def clean(self):
+        # Enforce that only one global prompt can exist
+        if self.is_global_prompt:
+            qs = PortalPrompt.objects.filter(is_global_prompt=True)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError("Only one global prompt is allowed.")
+
+        # A global prompt should not be linked to a portal
+        if self.is_global_prompt and self.portal is not None:
+            raise ValidationError("Global prompt cannot be linked to a specific portal.")
+
+        # Non-global prompts must have a portal
+        if not self.is_global_prompt and self.portal is None:
+            raise ValidationError("Non-global prompts must be linked to a specific portal.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()  # Run clean() before saving
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"Prompt for {self.portal.name}"
+        if self.is_global_prompt:
+            return f"🌍 Global Prompt: {self.name}"
+        return f"{self.portal.name} Prompt"

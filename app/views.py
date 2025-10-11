@@ -16,7 +16,7 @@ from django.utils.text import slugify
 
 
 from .models import (
-    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution
+    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution, PortalPrompt
 )
 from .serializers import (
     PortalSerializer, PortalSafeSerializer, PortalCategorySerializer, MasterCategorySerializer, 
@@ -685,10 +685,17 @@ class MasterNewsPostPublishAPIView(APIView):
                         rewritten_slug = news_post.slug or slugify(news_post.meta_title or news_post.title)
                     else:
                         # 6. Run GPT rewriting
-                        portal_prompt = getattr(portal, "prompt", None)
+                        # Try to get portal-specific prompt
+                        portal_prompt = PortalPrompt.objects.filter(portal=portal, is_active=True).first()
+
+                        # If not found, fall back to global default
+                        if not portal_prompt:
+                            portal_prompt = PortalPrompt.objects.filter(portal__isnull=True, is_active=True).first()
+
                         prompt_text = (
-                            portal_prompt.prompt_text if portal_prompt else
-                            "You are a news editor. Rewrite the given content slightly for clarity and engagement."
+                            portal_prompt.prompt_text
+                            if portal_prompt
+                            else "You are a news editor. Rewrite the given content slightly for clarity and engagement."
                         )
 
                         rewritten_title, rewritten_short, rewritten_content, rewritten_meta, rewritten_slug = generate_variation_with_gpt(
@@ -698,6 +705,7 @@ class MasterNewsPostPublishAPIView(APIView):
                             prompt_text,
                             news_post.meta_title,
                             news_post.slug,
+                            portal_name=portal.name, 
                         )
                         
                     # 7. Build payload

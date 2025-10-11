@@ -54,6 +54,6 @@ class NewsDistributionAdmin(admin.ModelAdmin):
 
 @admin.register(PortalPrompt)
 class PortalPromptAdmin(admin.ModelAdmin):
-    list_display = ['id', 'portal', 'prompt_text']
-    search_fields = ['id', 'portal', 'prompt_text']
-    list_filter = ['id', 'portal', 'prompt_text']
+    list_display = ['id', 'portal', 'prompt_text', 'is_global_prompt']
+    search_fields = ['id', 'portal', 'prompt_text', 'is_global_prompt']
+    list_filter = ['id', 'portal', 'prompt_text', 'is_global_prompt']

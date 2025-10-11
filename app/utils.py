@@ -15,7 +15,7 @@ def success_response(data, message = None):
 def error_response(message):
     return {"status": False, "message":message}
 
-def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title=None, slug=None):
+def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title=None, slug=None, portal_name=None):
     """
     Generate rephrased version of news fields using GPT.
     Always tries to parse JSON safely.
@@ -24,18 +24,7 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title
     print('started ai')
 
     user_content = f"""
-    Rewrite the following news content for the portal: {{portal_name}}. 
-    Each portal must have a unique variation of the rewritten content.
-
-    Rules:
-    - Preserve all HTML tags, attributes, styles, images, links, lists, and formatting inside the description.
-    - Rewrite the textual content for: title, short_description, description, and meta_title.
-    - The short_description must be a concise 1–2 sentence summary of the rewritten description.
-    - Generate a new slug as a clean, URL-safe version of the rewritten meta_title (lowercase, hyphen separated).
-    - Ensure wording differs slightly for each portal, but keep meaning intact.
-    - Do not remove, add, or modify any HTML structure.
-
-    Return ONLY valid JSON with keys: title, short_description, description, meta_title, slug.
+    Rewrite the following news content for the portal
 
     {{
         "title": "{title}",
