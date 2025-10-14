@@ -1,11 +1,14 @@
 import json
 import re
+import logging
 
 from app.models import MasterCategoryMapping
 from openai import OpenAI
 
 from django.conf import settings
 from django.utils.text import slugify
+
+logger = logging.getLogger("ai_variation") 
 
 client = OpenAI(api_key=settings.OPEN_AI_KEY)
 
@@ -21,7 +24,8 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title
     Always tries to parse JSON safely.
     Returns (title, short_desc, desc, meta_title, slug).
     """
-    print('started ai')
+    logger.info("Started AI generation for portal: %s", portal_name)
+
 
     user_content = f"""
     Rewrite the following news content for the portal
@@ -42,7 +46,8 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title
         "short_description": "{short_desc}",
         "description": "{desc}",
         "meta_title": "{meta_title or title}",
-        "slug": "{slug or slugify(meta_title or title)}"
+        "slug": "{slug or slugify(meta_title or title)}",
+        "portal_name":{portal_name}
     }}
     """
 
@@ -57,7 +62,7 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title
         )
 
         content = response.output_text.strip()
-        print("raw gpt response:", content[:500])  # debug
+        logger.info("Raw GPT response (first 500 chars): %s", content[:500])  # debug
 
         # Try strict JSON parse
         try:
@@ -70,8 +75,8 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title
                 data = json.loads(match.group(0))
             else:
                 raise ValueError("No valid JSON in GPT response")
-
-        print('parsed data:', data)
+        
+        logger.info("Successfully generated AI variation for %s", portal_name)
 
         return (
             data.get("title", title),
@@ -82,7 +87,7 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title
         )
 
     except Exception as e:
-        print("ai error", str(e))
+        logger.exception("AI generation failed for %s: %s", portal_name, str(e))
         # fallback if GPT fails
         return (
             title,
