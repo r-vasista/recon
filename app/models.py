@@ -70,6 +70,7 @@ class MasterCategoryMapping(BaseModel):
     master_category = models.ForeignKey(MasterCategory, on_delete=models.CASCADE, related_name="mappings")
     portal_category = models.ForeignKey(PortalCategory, on_delete=models.CASCADE, related_name="mappings")
     use_default_content = models.BooleanField(default=False, help_text="If true, send MasterNewsPost content without GPT rewrite")
+    is_default = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ("master_category", "portal_category")

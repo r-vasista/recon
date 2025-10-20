@@ -611,9 +611,7 @@ class GroupCategoriesListAPIView(APIView, PaginationMixin):
 class MasterNewsPostPublishAPIView(APIView):
     """
     POST /api/master-news/{id}/publish/
-    Publishes a MasterNewsPost to all portals assigned to the requesting user.
-    Skips if already SUCCESS, retries if FAILED/PENDING.
-    User can exclude some portals by sending a list in request.data['excluded_portals'].
+    Publishes a MasterNewsPost to portals mapped under the selected master category.
     """
 
     permission_classes = [IsAuthenticated]
@@ -621,186 +619,182 @@ class MasterNewsPostPublishAPIView(APIView):
     def post(self, request, pk):
         try:
             user = request.user
+            master_category_id = request.data.get("master_category_id")
 
-            # 1. Get the MasterNewsPost
-            news_post = get_object_or_404(MasterNewsPost, pk=pk)
-
-            # 2. Find assignments linked to this user
-            assignments = UserCategoryGroupAssignment.objects.filter(user=user)
-            if not assignments.exists():
+            if not master_category_id:
                 return Response(
-                    error_response("No assignments found for this user."),
-                    status=status.HTTP_400_BAD_REQUEST
+                    error_response("Please provide master_category_id."),
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # 3. Handle excluded portals
+            # 1. Validate MasterNewsPost
+            news_post = get_object_or_404(MasterNewsPost, pk=pk)
+
+            # 2. Check if user has that master category assigned
+            assignment = UserCategoryGroupAssignment.objects.filter(
+                user=user, master_category_id=master_category_id
+            ).first()
+
+            if not assignment:
+                return Response(
+                    error_response("You are not assigned to this master category."),
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            # 3. Get mappings (portals under this master category)
+            
+            # If no master_category_id provided, try to fetch default mapping for this portal
+            if not master_category_id:
+                default_mapping = MasterCategoryMapping.objects.filter(
+                    portal=portal, is_default=True
+                ).select_related("master_category").first()
+
+                if not default_mapping:
+                    return Response(
+                        error_response(
+                            "No default master category is mapped for this portal. Please provide master_category_id."
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # Use default master category from mapping
+                master_category_id = default_mapping.master_category.id
+
+            # Now fetch all portal mappings under this master category
+            mappings = MasterCategoryMapping.objects.filter(
+                master_category_id=master_category_id
+            ).select_related("portal_category", "portal_category__portal")
+
+            if not mappings.exists():
+                return Response(
+                    error_response("No portals mapped for this master category."),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             excluded_portals = request.data.get("excluded_portals", [])
             if not isinstance(excluded_portals, list):
                 excluded_portals = []
 
             results = []
 
-            # 4. Traverse all assignments → portals via mappings
-            for assignment in assignments:
-                for portal, portal_category in get_portals_from_assignment(assignment):
+            # 4. Iterate through mapped portals
+            for mapping in mappings:
+                portal = mapping.portal_category.portal
+                portal_category = mapping.portal_category
 
-                    # Skip if portal is excluded
-                    if portal.id in excluded_portals or portal.name in excluded_portals:
-                        results.append({
-                            "portal": portal.name,
-                            "category": portal_category.name if portal_category else None,
-                            "success": False,
-                            "response": "Skipped manually by user",
-                            "retried": False,
-                        })
-                        continue
-
-                    # 4. Check existing distribution
-                    distribution = NewsDistribution.objects.filter(
-                        news_post=news_post,
-                        portal=portal
-                    ).first()
-
-                    if distribution and distribution.status == "SUCCESS":
-                        results.append({
-                            "portal": portal.name,
-                            "category": portal_category.name if portal_category else None,
-                            "success": True,
-                            "response": "Skipped - already successfully distributed",
-                        })
-                        continue
-
-                    # 5. Check if this portal-category mapping requires default content
-                    mapping_record = MasterCategoryMapping.objects.filter(
-                        master_category=assignment.master_category,
-                        portal_category=portal_category
-                    ).first()
-
-                    if mapping_record and mapping_record.use_default_content:
-                        # Use original content (no GPT rewrite)
-                        rewritten_title = news_post.title
-                        rewritten_short = news_post.short_description
-                        rewritten_content = news_post.content
-                        rewritten_meta = news_post.meta_title or news_post.title
-                        rewritten_slug = news_post.slug or slugify(news_post.meta_title or news_post.title)
-                    else:
-                        # 6. Run GPT rewriting
-                        # Try to get portal-specific prompt
-                        portal_prompt = PortalPrompt.objects.filter(portal=portal, is_active=True).first()
-
-                        # If not found, fall back to global default
-                        if not portal_prompt:
-                            portal_prompt = PortalPrompt.objects.filter(portal__isnull=True, is_active=True).first()
-
-                        prompt_text = (
-                            portal_prompt.prompt_text
-                            if portal_prompt
-                            else "You are a news editor. Rewrite the given content slightly for clarity and engagement."
-                        )
-
-                        rewritten_title, rewritten_short, rewritten_content, rewritten_meta, rewritten_slug = generate_variation_with_gpt(
-                            news_post.title,
-                            news_post.short_description,
-                            news_post.content,
-                            prompt_text,
-                            news_post.meta_title,
-                            news_post.slug,
-                            portal_name=portal.name, 
-                        )
-                        
-                    # 7. Build payload
-                    mapping = PortalUserMapping.objects.filter(
-                        user=user, portal=portal, status="MATCHED"
-                    ).first()
-                    if not mapping or not mapping.portal_user_id:
-                        return Response(
-                            error_response("No valid portal user mapping found for this user."),
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
-
-                    payload = {
-                        "post_cat": portal_category.external_id if portal_category else None,
-                        "post_title": rewritten_title,
-                        "post_short_des": rewritten_short,
-                        "post_des": rewritten_content,
-                        "meta_title": rewritten_meta,
-                        "slug": rewritten_slug,
-                        "post_tag": news_post.post_tag or "",
-                        "author": mapping.portal_user_id,
-
-                        # Dates
-                        "Event_date": (news_post.Event_date or timezone.now().date()).isoformat(),
-                        "Eventend_date": (news_post.Event_end_date or timezone.now().date()).isoformat(),
-                        "schedule_date": (news_post.schedule_date or timezone.now()).isoformat(),
-
-                        # Flags
-                        "is_active": int(bool(news_post.latest_news)) if news_post.latest_news is not None else 0,
-                        "Event": int(bool(news_post.upcoming_event)) if news_post.upcoming_event is not None else 0,
-                        "Head_Lines": int(bool(news_post.Head_Lines)) if news_post.Head_Lines is not None else 0,
-                        "articles": int(bool(news_post.articles)) if news_post.articles is not None else 0,
-                        "trending": int(bool(news_post.trending)) if news_post.trending is not None else 0,
-                        "BreakingNews": int(bool(news_post.BreakingNews)) if news_post.BreakingNews is not None else 0,
-                        "post_status": news_post.counter or 0,
-                    }
-                    files = {"post_image": open(news_post.post_image.path, "rb")} if news_post.post_image else {}
-
-                    # 8. Call portal API
-                    api_url = f'{portal.base_url}/api/create-news/'
-                    try:
-                        response = requests.post(api_url, data=payload, files=files, timeout=10)
-                        success = response.status_code in [200, 201]
-                        response_msg = response.text
-                    except Exception as e:
-                        success = False
-                        response_msg = str(e)
-
-                    # 9. Handle distribution record
-                    if distribution:
-                        distribution.retry_count += 1
-                        distribution.status = "SUCCESS" if success else "FAILED"
-                        distribution.response_message = response_msg
-                        distribution.ai_title = rewritten_title
-                        distribution.ai_short_description = rewritten_short
-                        distribution.ai_content = rewritten_content
-                        distribution.save(update_fields=[
-                            "retry_count", "status", "response_message",
-                            "ai_title", "ai_short_description", "ai_content", "sent_at"
-                        ])
-                    else:
-                        NewsDistribution.objects.create(
-                            news_post=news_post,
-                            portal=portal,
-                            portal_category=portal_category,
-                            group=assignment.group,
-                            master_category=assignment.master_category,
-                            ai_title=rewritten_title,
-                            ai_short_description=rewritten_short,
-                            ai_content=rewritten_content,
-                            ai_meta_title = rewritten_meta,
-                            ai_slug = rewritten_slug,
-                            status="SUCCESS" if success else "FAILED",
-                            response_message=response_msg,
-                            retry_count=0,
-                        )
-
+                # Skip excluded ones
+                if portal.id in excluded_portals or portal.name in excluded_portals:
                     results.append({
                         "portal": portal.name,
-                        "category": portal_category.name if portal_category else None,
-                        "success": success,
-                        "response": response_msg,
-                        "retried": bool(distribution),
+                        "category": portal_category.name,
+                        "success": False,
+                        "response": "Skipped manually by user",
                     })
+                    continue
 
-            return Response(
-                success_response(results, "News published to portals"),
-                status=status.HTTP_200_OK
-            )
+                # Rewriting logic same as before ↓
+                if mapping.use_default_content:
+                    rewritten_title = news_post.title
+                    rewritten_short = news_post.short_description
+                    rewritten_content = news_post.content
+                    rewritten_meta = news_post.meta_title or news_post.title
+                    rewritten_slug = news_post.slug or slugify(news_post.meta_title or news_post.title)
+                else:
+                    portal_prompt = (
+                        PortalPrompt.objects.filter(portal=portal, is_active=True).first()
+                        or PortalPrompt.objects.filter(portal__isnull=True, is_active=True).first()
+                    )
+                    prompt_text = (
+                        portal_prompt.prompt_text
+                        if portal_prompt
+                        else "Rewrite the content slightly for clarity and engagement."
+                    )
+                    rewritten_title, rewritten_short, rewritten_content, rewritten_meta, rewritten_slug = generate_variation_with_gpt(
+                        news_post.title,
+                        news_post.short_description,
+                        news_post.content,
+                        prompt_text,
+                        news_post.meta_title,
+                        news_post.slug,
+                        portal_name=portal.name,
+                    )
+
+                # Get portal user mapping
+                portal_user = PortalUserMapping.objects.filter(
+                    user=user, portal=portal, status="MATCHED"
+                ).first()
+                if not portal_user:
+                    results.append({
+                        "portal": portal.name,
+                        "category": portal_category.name,
+                        "success": False,
+                        "response": "No valid portal user mapping found.",
+                    })
+                    continue
+
+                payload = {
+                    "post_cat": portal_category.external_id if portal_category else None,
+                    "post_title": rewritten_title,
+                    "post_short_des": rewritten_short,
+                    "post_des": rewritten_content,
+                    "meta_title": rewritten_meta,
+                    "slug": rewritten_slug,
+                    "post_tag": news_post.post_tag or "",
+                    "author": portal_user.portal_user_id,
+                    
+                    # Dates
+                    "Event_date": (news_post.Event_date or timezone.now().date()).isoformat(),
+                    "Eventend_date": (news_post.Event_end_date or timezone.now().date()).isoformat(),
+                    "schedule_date": (news_post.schedule_date or timezone.now()).isoformat(),
+
+                    # Flags
+                    "is_active": int(bool(news_post.latest_news)) if news_post.latest_news is not None else 0,
+                    "Event": int(bool(news_post.upcoming_event)) if news_post.upcoming_event is not None else 0,
+                    "Head_Lines": int(bool(news_post.Head_Lines)) if news_post.Head_Lines is not None else 0,
+                    "articles": int(bool(news_post.articles)) if news_post.articles is not None else 0,
+                    "trending": int(bool(news_post.trending)) if news_post.trending is not None else 0,
+                    "BreakingNews": int(bool(news_post.BreakingNews)) if news_post.BreakingNews is not None else 0,
+                    "post_status": news_post.counter or 0,
+                }
+                files = {"post_image": open(news_post.post_image.path, "rb")} if news_post.post_image else {}
+
+                api_url = f"{portal.base_url}/api/create-news/"
+                try:
+                    response = requests.post(api_url, data=payload, files=files, timeout=10)
+                    success = response.status_code in [200, 201]
+                    response_msg = response.text
+                except Exception as e:
+                    success = False
+                    response_msg = str(e)
+
+                NewsDistribution.objects.update_or_create(
+                    news_post=news_post,
+                    portal=portal,
+                    defaults={
+                        "portal_category": portal_category,
+                        "master_category_id": master_category_id,
+                        "status": "SUCCESS" if success else "FAILED",
+                        "response_message": response_msg,
+                        "ai_title": rewritten_title,
+                        "ai_short_description": rewritten_short,
+                        "ai_content": rewritten_content,
+                        "ai_meta_title": rewritten_meta,
+                        "ai_slug": rewritten_slug,
+                    },
+                )
+
+                results.append({
+                    "portal": portal.name,
+                    "category": portal_category.name,
+                    "success": success,
+                    "response": response_msg,
+                })
+
+            return Response(success_response(results, "News published successfully."))
 
         except Exception as e:
-            return Response(
-                error_response(str(e)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class NewsPostCreateAPIView(APIView):
