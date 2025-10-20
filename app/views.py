@@ -369,8 +369,9 @@ class MasterCategoryView(APIView):
     
 class MasterCategoryMappingView(APIView):
     """
-    POST /api/master-category-mappings/ → Create mapping
+    POST /api/master-category-mappings/ → Create mapping(s)
     GET /api/master-category-mappings/?master_category=1&portal=TOI → List mappings
+    PATCH /api/master-category-mappings/{id}/ → Update mapping
     DELETE /api/master-category-mappings/{id}/ → Delete mapping
     """
 
@@ -380,13 +381,15 @@ class MasterCategoryMappingView(APIView):
         {
             "master_category": 1,
             "portal_categories": [5, 6, 7],
-            "use_default_content": true   # optional
+            "use_default_content": true,
+            "is_default": true
         }
         """
         try:
             master_category_id = request.data.get("master_category")
             portal_category_ids = request.data.get("portal_categories", [])
             use_default_content = request.data.get("use_default_content", False)
+            is_default = request.data.get("is_default", False)
 
             if not master_category_id or not portal_category_ids:
                 return Response(
@@ -402,31 +405,46 @@ class MasterCategoryMappingView(APIView):
                     mapping, created = MasterCategoryMapping.objects.get_or_create(
                         master_category_id=master_category_id,
                         portal_category_id=portal_cat_id,
-                        defaults={"use_default_content": use_default_content},  # set on create
+                        defaults={
+                            "use_default_content": use_default_content,
+                            "is_default": is_default,
+                        },
                     )
+
+                    # If already exists, update fields if needed
                     if not created:
-                        # If already exists, maybe update use_default_content if provided
+                        changed = False
                         if mapping.use_default_content != use_default_content:
                             mapping.use_default_content = use_default_content
-                            mapping.save(update_fields=["use_default_content"])
+                            changed = True
+                        if mapping.is_default != is_default:
+                            mapping.is_default = is_default
+                            changed = True
+                        if changed:
+                            mapping.save(update_fields=["use_default_content", "is_default"])
                         skipped_mappings.append(portal_cat_id)
                     else:
                         created_mappings.append(mapping)
+
+                    # If marked as default, unset others for same portal
+                    if is_default:
+                        MasterCategoryMapping.objects.filter(
+                            portal_category__portal=mapping.portal_category.portal
+                        ).exclude(id=mapping.id).update(is_default=False)
+
                 except Exception as e:
                     skipped_mappings.append({"id": portal_cat_id, "error": str(e)})
 
             serializer = MasterCategoryMappingSerializer(created_mappings, many=True)
-            response_data = {
-                "created": serializer.data,
-                "skipped": skipped_mappings,
-            }
+            response_data = {"created": serializer.data, "skipped": skipped_mappings}
             return Response(
-                success_response(response_data, "Mappings processed"),
+                success_response(response_data, "Mappings processed successfully"),
                 status=status.HTTP_201_CREATED,
             )
 
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
     def get(self, request):
         try:
             queryset = MasterCategoryMapping.objects.all()
@@ -450,32 +468,35 @@ class MasterCategoryMappingView(APIView):
         """
         Example Payload:
         {
-            "use_default_content": true
+            "use_default_content": true,
+            "is_default": true
         }
         """
         try:
             mapping = MasterCategoryMapping.objects.get(pk=pk)
             use_default_content = request.data.get("use_default_content")
+            is_default = request.data.get("is_default")
 
-            if use_default_content is None:
-                return Response(
-                    error_response("use_default_content field is required"),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            if use_default_content is not None:
+                mapping.use_default_content = bool(use_default_content)
 
-            mapping.use_default_content = bool(use_default_content)
-            mapping.save(update_fields=["use_default_content"])
+            if is_default is not None:
+                mapping.is_default = bool(is_default)
+                if mapping.is_default:
+                    # Unset others for same portal
+                    MasterCategoryMapping.objects.filter(
+                        portal_category__portal=mapping.portal_category.portal
+                    ).exclude(id=mapping.id).update(is_default=False)
 
+            mapping.save()
             serializer = MasterCategoryMappingSerializer(mapping)
             return Response(
                 success_response(serializer.data, "Mapping updated successfully"),
                 status=status.HTTP_200_OK,
             )
+
         except MasterCategoryMapping.DoesNotExist:
-            return Response(
-                error_response("Mapping not found"),
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return Response(error_response("Mapping not found"), status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
