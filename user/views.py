@@ -542,3 +542,35 @@ class MyAssignmentListAPIView(APIView, PaginationMixin):
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class AllUsersAPIView(APIView, PaginationMixin):
+    """
+    GET /api/users/all/
+    Returns all users in the system (no exclusions), paginated.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            users = User.objects.all().order_by("-date_joined")
+
+            paginated_qs = self.paginate_queryset(users, request, view=self)
+            serializer = UserSerializer(paginated_qs, many=True)
+
+            return self.get_paginated_response(
+                serializer.data,
+                message="All users fetched successfully"
+            )
+
+        except ValidationError as e:
+            return Response(
+                error_response(e.detail),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

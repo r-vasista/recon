@@ -3,7 +3,7 @@ from .views import (
     CheckUsernameAcrossPortalsAPIView, PortalUserMappingCreateAPIView, UserRegistrationAPIView, UserPortalMappingsListAPIView,
     LoginView, UserAssignmentCreateAPIView, UserAssignmentListByUserAPIView, UserAssignmentListAPIView, PortalUserMappingManualAPIView,
     PortalUserMappingUpdateAPIView, UserListAPIView, UserAssignedPortalsView, UnassignedUsersAPIView, UserDetailsListAPIView,\
-    UserAssignmentRemoveAPIView, MyAssignmentListAPIView
+    UserAssignmentRemoveAPIView, MyAssignmentListAPIView, AllUsersAPIView
 )
 
 urlpatterns = [
@@ -28,4 +28,5 @@ urlpatterns = [
     path('user/assigned/portals/', UserAssignedPortalsView.as_view()),
     path('unassigned/users/', UnassignedUsersAPIView.as_view()),
     path('user/details/list/', UserDetailsListAPIView.as_view()),
+    path('all/users/list/', AllUsersAPIView.as_view()),
 ]
