@@ -499,3 +499,46 @@ class UserAssignmentRemoveAPIView(APIView):
 
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MyAssignmentListAPIView(APIView, PaginationMixin):
+    """
+    GET /api/user-assignments/me/
+    List assignments for the currently authenticated user.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            user = request.user
+
+            queryset = (
+                UserCategoryGroupAssignment.objects
+                .filter(user=user)
+                .order_by("-created_at")
+            )
+
+            page = self.paginate_queryset(queryset, request)
+            serializer = UserAssignmentListSerializer(page, many=True)
+
+            return self.get_paginated_response(
+                serializer.data,
+                message=f"Assignments for user {user.username}"
+            )
+
+        except Http404 as e:
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except ValidationError as e:
+            return Response(
+                error_response(e.detail),
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
