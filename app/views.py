@@ -449,20 +449,26 @@ class MasterCategoryMappingView(APIView):
         try:
             queryset = MasterCategoryMapping.objects.all()
 
-            # Filtering by master_category id
             master_category_id = request.query_params.get("master_category")
             if master_category_id:
                 queryset = queryset.filter(master_category_id=master_category_id)
 
-            # Filtering by portal name
             portal_name = request.query_params.get("portal")
             if portal_name:
                 queryset = queryset.filter(portal_category__portal__name__iexact=portal_name)
 
+            queryset = queryset.order_by("master_category__name")
+
             serializer = MasterCategoryMappingSerializer(queryset, many=True)
-            return Response(success_response("Mappings fetched", serializer.data), status=status.HTTP_200_OK)
+            return Response(
+                success_response("Mappings fetched", serializer.data),
+                status=status.HTTP_200_OK
+            )
         except Exception as e:
-            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                error_response(str(e)),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     def patch(self, request, pk):
         """
