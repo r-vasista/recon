@@ -1015,52 +1015,44 @@ class AdminStatsAPIView(APIView):
     def get(self, request, *args, **kwargs):
         try:
             user = request.user
-            role = getattr(user.role, "role", None)  # UserRole relation
+            role = getattr(user.role, "role", None)
 
-            # If role is ADMIN → show global stats
+            # --- Date Filtering ---
+            today_param = request.query_params.get("today")
+            start_date = request.query_params.get("start_date")
+            end_date = request.query_params.get("end_date")
+
+            # Default: No filtering
+            date_filter = {}
+
+            # Today filter (if ?today=true)
+            if today_param and today_param.lower() == "true":
+                today = timezone.now().date()
+                date_filter["created_at__date"] = today
+
+            # Custom date range filter
+            elif start_date and end_date:
+                date_filter["created_at__date__range"] = [start_date, end_date]
+
+            # --- MASTER ADMIN STATS ---
             if role and role.name.upper() == "MASTER":
                 stats = {
-                    "total_posts": MasterNewsPost.objects.count(),
-                    "total_users": User.objects.count(),
-                    "total_portals": Portal.objects.count(),
-                    "total_master_categories": MasterCategory.objects.count(),
+                    "total_posts": MasterNewsPost.objects.filter(**date_filter).count(),
+                    "total_users": User.objects.filter(**date_filter).count()
+                    if "created_at__date" in date_filter or "created_at__date__range" in date_filter else User.objects.count(),
+                    "total_portals": Portal.objects.filter(**date_filter).count(),
+                    "total_master_categories": MasterCategory.objects.filter(**date_filter).count(),
                 }
 
-                # Global distribution stats
-                total_distributions = NewsDistribution.objects.count()
-                successful_distributions = NewsDistribution.objects.filter(status="SUCCESS").count()
-                failed_distributions = NewsDistribution.objects.filter(status="FAILED").count()
-                pending_distributions = NewsDistribution.objects.filter(status="PENDING").count()
-                retry_counts = NewsDistribution.objects.aggregate(total=Sum("retry_count"))["total"] or 0
+                distributions = NewsDistribution.objects.filter(**date_filter)
+                stats.update(self._get_distribution_stats(distributions))
 
-                portal_distribution = (
-                    NewsDistribution.objects
-                    .values("portal__name")
-                    .annotate(total=Count("id"))
-                    .order_by("portal__name")
-                )
-                portal_distribution_dict = {item["portal__name"]: item["total"] for item in portal_distribution}
-
-                stats.update({
-                    "news_distribution": {
-                        "total_distributions": total_distributions,
-                        "successful_distributions": successful_distributions,
-                        "failed_distributions": failed_distributions,
-                        "pending_distributions": pending_distributions,
-                        "retry_counts": retry_counts,
-                        "portal_distribution_counts": portal_distribution_dict
-                    }
-                })
-
-            # If role is USER → show scoped stats
+            # --- USER STATS ---
             elif role and role.name.upper() == "USER":
-                # Posts created by this user
-                user_posts = MasterNewsPost.objects.filter(created_by=user)
-
-                # Assignments
+                user_posts = MasterNewsPost.objects.filter(created_by=user, **date_filter)
                 assignments = UserCategoryGroupAssignment.objects.filter(user=user)
-
-                # Portals assigned (unique set)
+                
+                # Collect related portals and master categories
                 portals = set()
                 master_categories = set()
                 for assignment in assignments:
@@ -1071,35 +1063,14 @@ class AdminStatsAPIView(APIView):
                     for portal, _ in get_portals_from_assignment(assignment):
                         portals.add(portal)
 
-                # NewsDistribution stats (only for user's posts)
-                user_distributions = NewsDistribution.objects.filter(news_post__created_by=user)
-                total_distributions = user_distributions.count()
-                successful_distributions = user_distributions.filter(status="SUCCESS").count()
-                failed_distributions = user_distributions.filter(status="FAILED").count()
-                pending_distributions = user_distributions.filter(status="PENDING").count()
-                retry_counts = user_distributions.aggregate(total=Sum("retry_count"))["total"] or 0
-
-                portal_distribution = (
-                    user_distributions
-                    .values("portal__name")
-                    .annotate(total=Count("id"))
-                    .order_by("portal__name")
-                )
-                portal_distribution_dict = {item["portal__name"]: item["total"] for item in portal_distribution}
+                user_distributions = NewsDistribution.objects.filter(news_post__created_by=user, **date_filter)
 
                 stats = {
                     "total_posts": user_posts.count(),
                     "total_portals": len(portals),
                     "total_master_categories": len(master_categories),
-                    "news_distribution": {
-                        "total_distributions": total_distributions,
-                        "successful_distributions": successful_distributions,
-                        "failed_distributions": failed_distributions,
-                        "pending_distributions": pending_distributions,
-                        "retry_counts": retry_counts,
-                        "portal_distribution_counts": portal_distribution_dict
-                    }
                 }
+                stats.update(self._get_distribution_stats(user_distributions))
 
             else:
                 return Response(
@@ -1117,6 +1088,32 @@ class AdminStatsAPIView(APIView):
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    # --- Helper function for clean reuse ---
+    def _get_distribution_stats(self, queryset):
+        total_distributions = queryset.count()
+        successful_distributions = queryset.filter(status="SUCCESS").count()
+        failed_distributions = queryset.filter(status="FAILED").count()
+        pending_distributions = queryset.filter(status="PENDING").count()
+        retry_counts = queryset.aggregate(total=Sum("retry_count"))["total"] or 0
+
+        portal_distribution = (
+            queryset.values("portal__name")
+            .annotate(total=Count("id"))
+            .order_by("portal__name")
+        )
+        portal_distribution_dict = {item["portal__name"]: item["total"] for item in portal_distribution}
+
+        return {
+            "news_distribution": {
+                "total_distributions": total_distributions,
+                "successful_distributions": successful_distributions,
+                "failed_distributions": failed_distributions,
+                "pending_distributions": pending_distributions,
+                "retry_counts": retry_counts,
+                "portal_distribution_counts": portal_distribution_dict,
+            }
+        }
 
 
 class DomainDistributionStatsAPIView(APIView):
