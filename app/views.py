@@ -1313,7 +1313,7 @@ class MyPostsListAPIView(APIView, PaginationMixin):
                 queryset = queryset.filter(status__iexact=status_filter)
 
             paginated_qs = self.paginate_queryset(queryset, request, view=self)
-            serializer = MasterNewsPostListSerializer(paginated_qs, many=True)
+            serializer = MasterNewsPostSerializer(paginated_qs, many=True)
 
             return self.get_paginated_response(
                 serializer.data,
