@@ -823,7 +823,6 @@ class MasterNewsPostPublishAPIView(APIView):
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
 class NewsPostCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -833,13 +832,17 @@ class NewsPostCreateAPIView(APIView):
             data = request.data.copy()
             data["created_by"] = request.user.id
 
+            # Default status to PUBLISHED if not provided
+            if "status" not in data:
+                data["status"] = "PUBLISHED"
+
             serializer = MasterNewsPostSerializer(data=data)
             if serializer.is_valid():
                 serializer.save()
                 return Response(
                     success_response(
                         serializer.data,
-                        "News post created successfully"
+                        f"News post {'saved as draft' if data['status'] == 'DRAFT' else 'created successfully'}"
                     ),
                     status=status.HTTP_201_CREATED
                 )
@@ -1223,3 +1226,63 @@ class AllPortalsTagsLiveAPIView(APIView):
         unique_tags = list(all_tags.values())
 
         return Response({"status": True, "tags": unique_tags})
+
+
+class NewsPostUpdateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def put(self, request, pk):
+        """
+        PUT /api/news-posts/{pk}/
+        Update a news post (including draft -> published transition)
+        """
+        try:
+            post = get_object_or_404(MasterNewsPost, pk=pk, created_by=request.user)
+
+            serializer = MasterNewsPostSerializer(post, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(
+                    success_response(
+                        serializer.data,
+                        "News post updated successfully"
+                    ),
+                    status=status.HTTP_200_OK
+                )
+            return Response(error_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
+        except Http404:
+            return Response(error_response("Post not found or unauthorized"), status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MyPostsListAPIView(APIView, PaginationMixin):
+    """
+    GET /api/my-posts/?status=DRAFT
+    Returns all posts created by the logged-in user.
+    Optionally filters by status (DRAFT / PUBLISHED).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            user = request.user
+            status_filter = request.query_params.get("status")
+
+            queryset = MasterNewsPost.objects.filter(created_by=user).order_by("-created_at")
+
+            # Optional filter by status
+            if status_filter:
+                queryset = queryset.filter(status__iexact=status_filter)
+
+            paginated_qs = self.paginate_queryset(queryset, request, view=self)
+            serializer = MasterNewsPostListSerializer(paginated_qs, many=True)
+
+            return self.get_paginated_response(
+                serializer.data,
+                message=f"Posts fetched for user {user.username}"
+            )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
