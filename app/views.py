@@ -718,6 +718,26 @@ class MasterNewsPostPublishAPIView(APIView):
                         "response": "Skipped manually by user",
                     })
                     continue
+                
+                # --- 🔁 Check existing distribution status
+                existing_dist = NewsDistribution.objects.filter(
+                    news_post=news_post, portal=portal
+                ).first()
+
+                if existing_dist and existing_dist.status == "SUCCESS":
+                    # ✅ Skip already successful
+                    results.append({
+                        "portal": portal.name,
+                        "category": portal_category.name,
+                        "success": True,
+                        "response": "Already published successfully, skipped.",
+                    })
+                    continue
+
+                # If failed earlier, increment retry count
+                if existing_dist and existing_dist.status == "FAILED":
+                    existing_dist.retry_count += 1
+                    existing_dist.save(update_fields=["retry_count"])
 
                 # Rewriting logic same as before ↓
                 if mapping.use_default_content:
