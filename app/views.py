@@ -1161,72 +1161,92 @@ class DomainDistributionStatsAPIView(APIView):
     def get(self, request, *args, **kwargs):
         try:
             user = request.user
-            role = getattr(user.role, "role", None)  # UserRole relation
-
+            role = getattr(user.role, "role", None)
+            today = timezone.now().date()
             stats = []
 
-            # ADMIN → all portals
+            # --- MASTER ADMIN: All portals ---
             if role and role.name.upper() == "MASTER":
-                domains = Portal.objects.all()
+                domains = Portal.objects.all().order_by("name")
+
                 for domain in domains:
                     distributions = NewsDistribution.objects.filter(portal=domain)
+                    today_distributions = distributions.filter(created_at__date=today)
 
                     domain_stats = {
                         "portal_id": domain.id,
                         "portal_name": domain.name,
+
+                        # --- Overall Counts ---
                         "total_distributions": distributions.count(),
                         "successful_distributions": distributions.filter(status="SUCCESS").count(),
                         "failed_distributions": distributions.filter(status="FAILED").count(),
                         "pending_distributions": distributions.filter(status="PENDING").count(),
                         "retry_counts": distributions.aggregate(total=Sum("retry_count"))["total"] or 0,
+
+                        # --- Today's Counts (flat fields) ---
+                        "today_total_distributions": today_distributions.count(),
+                        "today_successful_distributions": today_distributions.filter(status="SUCCESS").count(),
+                        "today_failed_distributions": today_distributions.filter(status="FAILED").count(),
+                        "today_pending_distributions": today_distributions.filter(status="PENDING").count(),
+                        "today_retry_counts": today_distributions.aggregate(total=Sum("retry_count"))["total"] or 0,
                     }
                     stats.append(domain_stats)
 
-            # USER → only assigned portals + their own posts
+            # --- USER: Only assigned portals + user's posts ---
             elif role and role.name.upper() == "USER":
                 assignments = UserCategoryGroupAssignment.objects.filter(user=user)
 
-                # Collect unique portals assigned
+                # Collect unique portals from assignments
                 assigned_portals = set()
                 for assignment in assignments:
                     for portal, _ in get_portals_from_assignment(assignment):
                         assigned_portals.add(portal)
 
-                # Loop through only assigned portals
                 for domain in assigned_portals:
                     distributions = NewsDistribution.objects.filter(
                         portal=domain,
-                        news_post__created_by=user  # only user's posts
+                        news_post__created_by=user,
                     )
+                    today_distributions = distributions.filter(created_at__date=today)
 
                     domain_stats = {
                         "portal_id": domain.id,
                         "portal_name": domain.name,
+
+                        # --- Overall Counts ---
                         "total_distributions": distributions.count(),
                         "successful_distributions": distributions.filter(status="SUCCESS").count(),
                         "failed_distributions": distributions.filter(status="FAILED").count(),
                         "pending_distributions": distributions.filter(status="PENDING").count(),
                         "retry_counts": distributions.aggregate(total=Sum("retry_count"))["total"] or 0,
+
+                        # --- Today's Counts (flat fields) ---
+                        "today_total_distributions": today_distributions.count(),
+                        "today_successful_distributions": today_distributions.filter(status="SUCCESS").count(),
+                        "today_failed_distributions": today_distributions.filter(status="FAILED").count(),
+                        "today_pending_distributions": today_distributions.filter(status="PENDING").count(),
+                        "today_retry_counts": today_distributions.aggregate(total=Sum("retry_count"))["total"] or 0,
                     }
                     stats.append(domain_stats)
 
             else:
                 return Response(
                     error_response("Role not recognized or not assigned"),
-                    status=status.HTTP_403_FORBIDDEN
+                    status=status.HTTP_403_FORBIDDEN,
                 )
 
             return Response(
                 success_response(stats, "Domain-wise distribution stats fetched successfully"),
-                status=status.HTTP_200_OK
+                status=status.HTTP_200_OK,
             )
 
         except Exception as e:
             return Response(
                 error_response(str(e)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-            
+
 
 class AllPortalsTagsLiveAPIView(APIView):
     permission_classes = [IsAuthenticated]
