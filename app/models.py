@@ -99,6 +99,12 @@ class UserGroup(BaseModel):
 
 class MasterNewsPost(BaseModel):
     """Main news post created inside Recon."""
+    
+    STATUS_CHOICES = [
+        ("DRAFT", "Draft"),
+        ("PUBLISHED", "Published"),
+    ]
+    
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="master_news_posts")
 
     # Mandatory fields
@@ -129,6 +135,10 @@ class MasterNewsPost(BaseModel):
     # Meta info
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default="PUBLISHED"
+    )
 
     def __str__(self):
         return self.title
