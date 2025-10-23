@@ -66,6 +66,7 @@ class MasterCategoryMappingSerializer(serializers.ModelSerializer):
     master_category_name = serializers.CharField(source="master_category.name", read_only=True)
     portal_name = serializers.CharField(source="portal_category.portal.name", read_only=True)
     portal_category_name = serializers.CharField(source="portal_category.name", read_only=True)
+    portal_id = serializers.CharField(source="portal_category.portal.id", read_only=True)
 
     class Meta:
         model = MasterCategoryMapping
@@ -75,6 +76,7 @@ class MasterCategoryMappingSerializer(serializers.ModelSerializer):
             "master_category_name",
             "portal_category",
             "portal_name",
+            "portal_id",
             "portal_category_name",
             "use_default_content",
             "is_default",
