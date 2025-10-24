@@ -422,7 +422,7 @@ class UnassignedUsersAPIView(APIView, PaginationMixin):
             )
 
 
-class UserDetailsListAPIView(APIView):
+class UserDetailsListAPIView(APIView,PaginationMixin):
     """
     GET /api/users/role-users/
     Lists all users with role=USER and their assigned portals + categories + total posts.
@@ -442,11 +442,11 @@ class UserDetailsListAPIView(APIView):
             users = User.objects.filter(role__role=user_role)
 
             serializer = UserWithPortalsSerializer(users, many=True)
+            
+            paginated_qs = self.paginate_queryset(users, request, view=self)
+            serializer = UserWithPortalsSerializer(paginated_qs, many=True)
+            return self.get_paginated_response(serializer.data, message="User role users fetched successfully")
 
-            return Response(
-                success_response(serializer.data, "User role users fetched successfully"),
-                status=status.HTTP_200_OK
-            )
         except Exception as e:
             return Response(
                 error_response(str(e)),

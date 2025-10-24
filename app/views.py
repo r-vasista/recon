@@ -11,6 +11,7 @@ from django.db import transaction
 from django.db.models import Q, Count, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.contrib.auth import get_user_model
 from django.utils.text import slugify
 
@@ -718,6 +719,26 @@ class MasterNewsPostPublishAPIView(APIView):
                         "response": "Skipped manually by user",
                     })
                     continue
+                
+                # --- 🔁 Check existing distribution status
+                existing_dist = NewsDistribution.objects.filter(
+                    news_post=news_post, portal=portal
+                ).first()
+
+                if existing_dist and existing_dist.status == "SUCCESS":
+                    # ✅ Skip already successful
+                    results.append({
+                        "portal": portal.name,
+                        "category": portal_category.name,
+                        "success": True,
+                        "response": "Already published successfully, skipped.",
+                    })
+                    continue
+
+                # If failed earlier, increment retry count
+                if existing_dist and existing_dist.status == "FAILED":
+                    existing_dist.retry_count += 1
+                    existing_dist.save(update_fields=["retry_count"])
 
                 # Rewriting logic same as before ↓
                 if mapping.use_default_content:
@@ -945,44 +966,95 @@ class AllNewsPostsAPIView(APIView, PaginationMixin):
 
 
 class NewsDistributionListAPIView(APIView, PaginationMixin):
+    """
+    GET /api/news-distributions/
+
+    Fetch paginated list of NewsDistribution records with filters and search.
+
+    Query Params:
+    - search: search by title, ai_title, slug, ai_slug, or author username
+    - status: filter by distribution status (SUCCESS, FAILED, PENDING)
+    - portal: filter by portal id
+    - portal_name: filter by portal name (case-insensitive)
+    - portal_category: filter by portal_category id
+    - portal_category_name: filter by portal_category name (case-insensitive)
+    - master_category_name: filter by master category name (case-insensitive)
+    - created_by: filter by creator user id
+    - date_from, date_to: filter by sent_at range (YYYY-MM-DD)
+    """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
         try:
             queryset = NewsDistribution.objects.select_related(
-                "news_post", "portal", "master_category", "portal_category"
+                "news_post", "portal", "master_category", "portal_category", "news_post__created_by"
             ).order_by("-sent_at")
+
+            # ---- Search ----
+            search = request.query_params.get("search")
+            if search:
+                queryset = queryset.filter(
+                    Q(news_post__title__icontains=search)
+                    | Q(ai_title__icontains=search)
+                    | Q(news_post__slug__icontains=search)
+                    | Q(ai_slug__icontains=search)
+                    | Q(news_post__created_by__username__icontains=search)
+                )
 
             # ---- Filters ----
             created_by = request.query_params.get("created_by")
             portal = request.query_params.get("portal")
+            portal_name = request.query_params.get("portal_name")
             portal_category = request.query_params.get("portal_category")
+            portal_category_name = request.query_params.get("portal_category_name")
             status_filter = request.query_params.get("status")
+            master_category_name = request.query_params.get("master_category_name")
+            date_from = request.query_params.get("date_from")
+            date_to = request.query_params.get("date_to")
 
             if created_by:
                 queryset = queryset.filter(news_post__created_by_id=created_by)
             if portal:
                 queryset = queryset.filter(portal_id=portal)
+            if portal_name:
+                queryset = queryset.filter(portal__name__icontains=portal_name)
             if portal_category:
                 queryset = queryset.filter(portal_category_id=portal_category)
+            if portal_category_name:
+                queryset = queryset.filter(portal_category__name__icontains=portal_category_name)
             if status_filter:
                 queryset = queryset.filter(status=status_filter.upper())
+            if master_category_name:
+                queryset = queryset.filter(master_category__name__icontains=master_category_name)
+
+            # ---- Date Range Filter ----
+            if date_from:
+                parsed_from = parse_date(date_from)
+                if parsed_from:
+                    queryset = queryset.filter(sent_at__date__gte=parsed_from)
+
+            if date_to:
+                parsed_to = parse_date(date_to)
+                if parsed_to:
+                    queryset = queryset.filter(sent_at__date__lte=parsed_to)
 
             # ---- Pagination ----
             paginated_qs = self.paginate_queryset(queryset, request, view=self)
-            serializer = NewsDistributionListSerializer(paginated_qs, many=True, context={"request": request})
+            serializer = NewsDistributionListSerializer(
+                paginated_qs, many=True, context={"request": request}
+            )
 
             return self.get_paginated_response(
                 serializer.data,
                 message="News distribution list fetched successfully"
             )
-        
+
         except Exception as e:
             return Response(
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
 
 class NewsDistributionDetailAPIView(APIView):
     permission_classes = [IsAuthenticated]

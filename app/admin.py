@@ -40,14 +40,19 @@ class GroupAdmin(admin.ModelAdmin):
 
 @admin.register(MasterNewsPost)
 class MasterNewsPostAdmin(admin.ModelAdmin):
-    list_display = ['id', 'title', 'created_by']
-    search_fields = ['id', 'title', 'created_by']
+    list_display = ['id', 'title', 'created_by__username']
+    search_fields = [
+        "title",
+        "slug",
+        "meta_title",
+        "created_by__username",
+    ]
     list_filter = ['id', 'title', 'created_by']
 
 
 @admin.register(NewsDistribution)
 class NewsDistributionAdmin(admin.ModelAdmin):
-    list_display = ['id', 'news_post', 'portal', 'portal_category', 'status']
+    list_display = ['id', 'news_post', 'portal', 'portal_category', 'status', 'master_category']
     search_fields = ['id', 'news_post', 'portal', 'portal_category']
     list_filter = ['id', 'news_post', 'portal', 'portal_category']
 
