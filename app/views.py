@@ -1,4 +1,5 @@
 import requests
+import json
 from urllib.parse import urljoin
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -644,16 +645,21 @@ class MasterNewsPostPublishAPIView(APIView):
     def post(self, request, pk):
         try:
             user = request.user
-            master_category_id = request.data.get("master_category_id")
+            # master_category_id = request.data.get("master_category_id")
 
-            if not master_category_id:
-                return Response(
-                    error_response("Please provide master_category_id."),
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            # if not master_category_id:
+            #     return Response(
+            #         error_response("Please provide master_category_id."),
+            #         status=status.HTTP_400_BAD_REQUEST,
+            #     )
 
-            # 1. Validate MasterNewsPost
+            # 1. Validate MasterNewsPost 
             news_post = get_object_or_404(MasterNewsPost, pk=pk)
+            
+            # 1.5 Get master category id from request or newspost 
+            master_category_id = request.data.get("master_category_id") or getattr(news_post.master_category, "id", None)
+            if not master_category_id:
+                return Response(error_response("master_category_id is missing and not saved in post."), status=400)
 
             # 2. Check if user has that master category assigned
             assignment = UserCategoryGroupAssignment.objects.filter(
@@ -696,7 +702,9 @@ class MasterNewsPostPublishAPIView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            excluded_portals = request.data.get("excluded_portals", [])
+            excluded_portals = request.data.get("excluded_portals") or news_post.excluded_portals or []
+            if isinstance(excluded_portals, str):
+                excluded_portals = json.loads(excluded_portals)
             if not isinstance(excluded_portals, list):
                 excluded_portals = []
 
@@ -849,21 +857,25 @@ class NewsPostCreateAPIView(APIView):
         try:
             data = request.data.copy()
             data["created_by"] = request.user.id
+            data["status"] = data.get("status", "PUBLISHED")
 
-            # Default status to PUBLISHED if not provided
-            if "status" not in data:
-                data["status"] = "PUBLISHED"
+            # Convert excluded_portals to list if provided as string (common case in JSON)
+            excluded_portals = data.get("excluded_portals")
+            if isinstance(excluded_portals, str):
+                try:
+                    data["excluded_portals"] = json.loads(excluded_portals)
+                except Exception:
+                    data["excluded_portals"] = []
 
             serializer = MasterNewsPostSerializer(data=data)
             if serializer.is_valid():
                 serializer.save()
-                return Response(
-                    success_response(
-                        serializer.data,
-                        f"News post {'saved as draft' if data['status'] == 'DRAFT' else 'created successfully'}"
-                    ),
-                    status=status.HTTP_201_CREATED
+                msg = (
+                    "News post saved as draft successfully."
+                    if data["status"] == "DRAFT"
+                    else "News post created successfully."
                 )
+                return Response(success_response(serializer.data, msg), status=status.HTTP_201_CREATED)
             return Response(error_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
