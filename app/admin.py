@@ -40,14 +40,15 @@ class GroupAdmin(admin.ModelAdmin):
 
 @admin.register(MasterNewsPost)
 class MasterNewsPostAdmin(admin.ModelAdmin):
-    list_display = ['id', 'title', 'created_by__username']
+    list_display = ['id', 'title', 'created_by__username', 'master_category']
     search_fields = [
         "title",
         "slug",
         "meta_title",
         "created_by__username",
+        "master_category"
     ]
-    list_filter = ['id', 'title', 'created_by']
+    list_filter = ['id', 'title', 'created_by', 'master_category']
 
 
 @admin.register(NewsDistribution)

@@ -131,6 +131,12 @@ class MasterNewsPost(BaseModel):
     # SEO fields
     meta_title = models.CharField(max_length=255, null=True, blank=True)
     slug = models.SlugField(max_length=255, unique=True, blank=True)
+    
+    # Mastercategory and exclude portal data
+    master_category = models.ForeignKey(
+        MasterCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name="news_posts"
+    )
+    excluded_portals = models.JSONField(null=True, blank=True, default=list)
 
     # Meta info
     created_at = models.DateTimeField(auto_now_add=True)
