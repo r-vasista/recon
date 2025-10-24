@@ -294,7 +294,7 @@ class PortalCategoryListView(APIView, PaginationMixin):
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-class MasterCategoryView(APIView):
+class MasterCategoryView(APIView, PaginationMixin):
     """
     POST /api/master-categories/      → Create master category
     GET /api/master-categories/       → List master categories
@@ -330,13 +330,11 @@ class MasterCategoryView(APIView):
             queryset = MasterCategory.objects.all().order_by("name")
 
             if mapped and mapped.lower() == "true":
-                queryset = queryset.filter(mappings__isnull=False).distinct()
-
-            serializer = MasterCategorySerializer(queryset, many=True)
-            return Response(
-                success_response(serializer.data, "Master categories fetched"),
-                status=status.HTTP_200_OK
-            )
+                queryset = queryset.filter(mappings__isnull=False).distinc
+                
+            paginated_queryset = self.paginate_queryset(queryset, request)
+            serializer = MasterCategorySerializer(paginated_queryset, many=True)
+            return self.get_paginated_response(serializer.data)
 
         except Exception as e:
             return Response(
@@ -368,7 +366,7 @@ class MasterCategoryView(APIView):
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     
-class MasterCategoryMappingView(APIView):
+class MasterCategoryMappingView(APIView, PaginationMixin):
     """
     POST /api/master-category-mappings/ → Create mapping(s)
     GET /api/master-category-mappings/?master_category=1&portal=TOI → List mappings
@@ -460,11 +458,10 @@ class MasterCategoryMappingView(APIView):
 
             queryset = queryset.order_by("master_category__name")
 
-            serializer = MasterCategoryMappingSerializer(queryset, many=True)
-            return Response(
-                success_response("Mappings fetched", serializer.data),
-                status=status.HTTP_200_OK
-            )
+            paginated_queryset = self.paginate_queryset(queryset, request)
+            serializer = MasterCategoryMappingSerializer(paginated_queryset, many=True)
+            return self.get_paginated_response(serializer.data)
+            
         except Exception as e:
             return Response(
                 error_response(str(e)),
