@@ -326,15 +326,24 @@ class MasterCategoryView(APIView, PaginationMixin):
     def get(self, request):
         try:
             mapped = request.query_params.get("mapped")
+            search = request.query_params.get("search")
 
             queryset = MasterCategory.objects.all().order_by("name")
 
+            # Filter by mapped/unmapped
             if mapped and mapped.lower() == "true":
-                queryset = queryset.filter(mappings__isnull=False).distinc
-                
+                queryset = queryset.filter(mappings__isnull=False).distinct()
+            elif mapped and mapped.lower() == "false":
+                queryset = queryset.filter(mappings__isnull=True).distinct()
+
+            # Search by name
+            if search:
+                queryset = queryset.filter(name__icontains=search)
+
+            # Pagination
             paginated_queryset = self.paginate_queryset(queryset, request)
             serializer = MasterCategorySerializer(paginated_queryset, many=True)
-            return self.get_paginated_response(serializer.data)
+            return self.get_paginated_response(serializer.data, message="Master categories fetched successfully.")
 
         except Exception as e:
             return Response(
