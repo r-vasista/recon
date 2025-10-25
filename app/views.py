@@ -1,6 +1,7 @@
 import requests
 import json
 from urllib.parse import urljoin
+from datetime import timedelta
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -1420,6 +1421,138 @@ class MyPostsListAPIView(APIView, PaginationMixin):
                 serializer.data,
                 message=f"Posts fetched for user {user.username}"
             )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class NewsReportAPIView(APIView):
+    """
+    GET /api/news/report/
+    Returns news production summary and filtered results.
+
+    Query Params:
+    - date_filter: today | 7days | custom
+    - start_date: YYYY-MM-DD
+    - end_date: YYYY-MM-DD
+    - portal_id
+    - master_category_id
+    - username
+    - search (title, slug, ai_title, ai_slug)
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            params = request.query_params
+            date_filter = params.get("date_filter", "today")
+            start_date = params.get("start_date")
+            end_date = params.get("end_date")
+            portal_id = params.get("portal_id")
+            master_category_id = params.get("master_category_id")
+            username = params.get("username")
+            search = params.get("search")
+
+            today = timezone.now().date()
+            start_dt, end_dt = None, None
+
+            # Handle date filters
+            if date_filter == "today":
+                start_dt = today
+                end_dt = today
+            elif date_filter == "7days":
+                start_dt = today - timedelta(days=7)
+                end_dt = today
+            elif date_filter == "custom" and start_date and end_date:
+                start_dt = timezone.datetime.fromisoformat(start_date)
+                end_dt = timezone.datetime.fromisoformat(end_date)
+            else:
+                start_dt = today
+                end_dt = today
+
+            # Base querysets
+            master_posts = MasterNewsPost.objects.all()
+            distributions = NewsDistribution.objects.select_related(
+                "news_post", "portal", "master_category", "news_post__created_by"
+            )
+
+            # Date filters
+            if start_dt and end_dt:
+                master_posts = master_posts.filter(created_at__date__range=[start_dt, end_dt])
+                distributions = distributions.filter(sent_at__date__range=[start_dt, end_dt])
+
+            # Portal filter
+            if portal_id:
+                distributions = distributions.filter(portal_id=portal_id)
+
+            # Master Category filter
+            if master_category_id:
+                master_posts = master_posts.filter(master_category_id=master_category_id)
+                distributions = distributions.filter(master_category_id=master_category_id)
+
+            # Username filter
+            if username:
+                master_posts = master_posts.filter(created_by__username__icontains=username)
+                distributions = distributions.filter(news_post__created_by__username__icontains=username)
+
+            # Search filter
+            if search:
+                search_q = (
+                    Q(title__icontains=search) |
+                    Q(slug__icontains=search) |
+                    Q(news_distribution__ai_title__icontains=search) |
+                    Q(news_distribution__ai_slug__icontains=search)
+                )
+                master_posts = master_posts.filter(search_q).distinct()
+
+            # --- Aggregations ---
+            total_master_posts = master_posts.count()
+            total_distributions = distributions.count()
+
+            # Group by user
+            user_stats = (
+                master_posts.values("created_by", "created_by__username")
+                .annotate(master_posts_count=Count("id"))
+            )
+
+            data = []
+            for stat in user_stats:
+                user_id = stat["created_by"]
+                user_name = stat["created_by__username"]
+
+                user_dists = distributions.filter(news_post__created_by_id=user_id)
+                user_posts = master_posts.filter(created_by_id=user_id)
+
+                latest_post = user_posts.order_by("-created_at").first()
+
+                data.append({
+                    "user_id": user_id,
+                    "username": user_name,
+                    "master_posts_count": stat["master_posts_count"],
+                    "distribution_count": user_dists.count(),
+                    "latest_post_date": latest_post.created_at if latest_post else None,
+                    "master_posts": [
+                        {
+                            "id": p.id,
+                            "title": p.title,
+                            "slug": p.slug,
+                            "status": p.status,
+                            "master_category": p.master_category.name if p.master_category else None,
+                            "excluded_portals": p.excluded_portals,
+                            "created_at": p.created_at
+                        }
+                        for p in user_posts[:10]  # Limit per user
+                    ]
+                })
+
+            return Response(success_response({
+                "summary": {
+                    "total_master_posts": total_master_posts,
+                    "total_distributions": total_distributions
+                },
+                "results": data
+            }, "News production report fetched successfully."))
 
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
