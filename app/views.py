@@ -283,12 +283,10 @@ class PortalCategoryListView(APIView, PaginationMixin):
             if search:
                 queryset = queryset.filter(Q(name__icontains=search))
 
-            # paginated_queryset = self.paginate_queryset(queryset, request)
+            paginated_queryset = self.paginate_queryset(queryset, request)
 
-            # serializer = PortalCategorySerializer(paginated_queryset, many=True)
-            # return self.get_paginated_response(serializer.data)
-            serializer = PortalCategorySerializer(queryset, many=True)
-            return Response(success_response(serializer.data), status=status.HTTP_200_OK)
+            serializer = PortalCategorySerializer(paginated_queryset, many=True)
+            return self.get_paginated_response(serializer.data)
 
         except Portal.DoesNotExist:
             return Response(error_response("Portal not found"), status=status.HTTP_404_NOT_FOUND)
