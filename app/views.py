@@ -1430,10 +1430,10 @@ class MyPostsListAPIView(APIView, PaginationMixin):
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-class NewsReportAPIView(APIView):
+class NewsReportAPIView(APIView, PaginationMixin):
     """
     GET /api/news/report/
-    Returns news production summary and filtered results.
+    Returns news production summary and filtered results with pagination.
 
     Query Params:
     - date_filter: today | 7days | custom
@@ -1443,6 +1443,8 @@ class NewsReportAPIView(APIView):
     - master_category_id
     - username
     - search (title, slug, ai_title, ai_slug)
+    - page
+    - page_size
     """
 
     permission_classes = [IsAuthenticated]
@@ -1527,7 +1529,6 @@ class NewsReportAPIView(APIView):
 
                 user_dists = distributions.filter(news_post__created_by_id=user_id)
                 user_posts = master_posts.filter(created_by_id=user_id)
-
                 latest_post = user_posts.order_by("-created_at").first()
 
                 data.append({
@@ -1550,13 +1551,19 @@ class NewsReportAPIView(APIView):
                     ]
                 })
 
-            return Response(success_response({
-                "summary": {
-                    "total_master_posts": total_master_posts,
-                    "total_distributions": total_distributions
+            # Apply pagination on the data list
+            paginated_data = self.paginate_queryset(data, request, view=self)
+
+            return self.get_paginated_response(
+                {
+                    "summary": {
+                        "total_master_posts": total_master_posts,
+                        "total_distributions": total_distributions,
+                    },
+                    "results": paginated_data,
                 },
-                "results": data
-            }, "News production report fetched successfully."))
+                message="News production report fetched successfully."
+            )
 
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
