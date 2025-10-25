@@ -48,7 +48,7 @@ class MasterNewsPostAdmin(admin.ModelAdmin):
         "created_by__username",
         "master_category"
     ]
-    list_filter = ['id', 'title', 'created_by', 'master_category']
+    list_filter = ['id', 'title', 'created_by__username', 'master_category']
 
 
 @admin.register(NewsDistribution)
