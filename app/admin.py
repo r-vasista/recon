@@ -54,8 +54,8 @@ class MasterNewsPostAdmin(admin.ModelAdmin):
 @admin.register(NewsDistribution)
 class NewsDistributionAdmin(admin.ModelAdmin):
     list_display = ['id', 'news_post', 'portal', 'portal_category', 'status', 'master_category']
-    search_fields = ['id', 'news_post', 'portal', 'portal_category']
-    list_filter = ['id', 'news_post', 'portal', 'portal_category']
+    search_fields = ['id', 'news_post', 'portal', 'portal_category', 'status', 'master_category']
+    list_filter = ['id', 'news_post', 'portal', 'portal_category', 'status', 'master_category']
 
 
 @admin.register(PortalPrompt)
