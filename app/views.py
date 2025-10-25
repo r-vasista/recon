@@ -529,6 +529,8 @@ class MasterCategoryMappingsListView(APIView, PaginationMixin):
     GET /api/master-categories/{master_category_id}/mappings/?page=1&page_size=10
 
     Lists all portal categories mapped to the given master category with pagination.
+    Also includes data about users assigned to that master category,
+    either directly or through a group that includes this category.
     """
 
     def get(self, request, master_category_id):
@@ -539,21 +541,48 @@ class MasterCategoryMappingsListView(APIView, PaginationMixin):
             except MasterCategory.DoesNotExist:
                 raise Http404("Master Category not found")
 
-            # Fetch all mappings
+            # --- Get mappings ---
             mappings = MasterCategoryMapping.objects.filter(
                 master_category=master_category
             ).select_related("portal_category", "portal_category__portal")
 
-            # Paginate
             paginated_queryset = self.paginate_queryset(mappings, request)
-            serializer = MasterCategoryMappingSerializer(paginated_queryset, many=True)
+            mapping_serializer = MasterCategoryMappingSerializer(paginated_queryset, many=True)
 
-            return self.get_paginated_response(serializer.data)
+            # --- Get assigned users ---
+            # 1️⃣ Direct assignments
+            direct_users = UserCategoryGroupAssignment.objects.filter(
+                master_category=master_category
+            ).select_related("user")
+
+            # 2️⃣ Indirect (via group)
+            group_users = UserCategoryGroupAssignment.objects.filter(
+                group__master_categories=master_category
+            ).select_related("user", "group").distinct()
+
+            # Combine both sets
+            combined_users = set(list(direct_users.values_list("user_id", flat=True)) +
+                                 list(group_users.values_list("user_id", flat=True)))
+
+            # Fetch user details efficiently
+            assigned_users = User.objects.filter(id__in=combined_users).values("id", "username", "email")
+
+            response_data = {
+                "master_category": {
+                    "id": master_category.id,
+                    "name": master_category.name,
+                },
+                "assigned_users": list(assigned_users),
+                "mappings": mapping_serializer.data,
+            }
+
+            return self.get_paginated_response(response_data, message="Master category mappings and assigned users fetched successfully.")
 
         except Http404 as e:
             return Response(error_response(str(e)), status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class GroupCreateListAPIView(APIView, PaginationMixin):
