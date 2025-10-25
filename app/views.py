@@ -991,6 +991,7 @@ class NewsDistributionListAPIView(APIView, PaginationMixin):
     - master_category_name: filter by master category name (case-insensitive)
     - created_by: filter by creator user id
     - date_from, date_to: filter by sent_at range (YYYY-MM-DD)
+    - news_post_id: filter all distributions of a specific master news post
     """
 
     permission_classes = [IsAuthenticated]
@@ -1022,6 +1023,7 @@ class NewsDistributionListAPIView(APIView, PaginationMixin):
             master_category_name = request.query_params.get("master_category_name")
             date_from = request.query_params.get("date_from")
             date_to = request.query_params.get("date_to")
+            news_post_id = request.query_params.get("news_post_id")
 
             if created_by:
                 queryset = queryset.filter(news_post__created_by_id=created_by)
@@ -1037,6 +1039,8 @@ class NewsDistributionListAPIView(APIView, PaginationMixin):
                 queryset = queryset.filter(status=status_filter.upper())
             if master_category_name:
                 queryset = queryset.filter(master_category__name__icontains=master_category_name)
+            if news_post_id:
+                queryset = queryset.filter(news_post_id=news_post_id)
 
             # ---- Date Range Filter ----
             if date_from:
