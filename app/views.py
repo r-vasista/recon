@@ -9,6 +9,7 @@ from django.db.models.functions import Coalesce
 from datetime import date
 from urllib.parse import urljoin
 from datetime import timedelta
+from types import SimpleNamespace
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -690,6 +691,11 @@ class MasterNewsPostPublishAPIView(APIView):
     Publishes a MasterNewsPost to portals mapped under the selected master category.
     Creates NewsDistribution entries upfront with status='PENDING'.
     If AI or posting fails, updates them with 'FAILED' and error message.
+    {
+    "master_category_id": 6,
+    "portal_category_ids": [22, 23, 45],
+    "exclude_portal_categories": [23]
+    }
     """
 
     permission_classes = [IsAuthenticated]
@@ -715,20 +721,50 @@ class MasterNewsPostPublishAPIView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
-            # 3. Get portal mappings
-            mappings = MasterCategoryMapping.objects.filter(
-                master_category_id=master_category_id
-            ).select_related("portal_category", "portal_category__portal")
+            # 3. Get portal mappings (from master category)
+            mappings = list(
+                MasterCategoryMapping.objects.filter(
+                    master_category_id=master_category_id
+                ).select_related("portal_category", "portal_category__portal")
+            )
 
-            if not mappings.exists():
-                return Response(error_response("No portals mapped for this master category."), status=400)
+            # 3.1 Also include manually selected portal categories if provided
+            manual_portal_category_ids = request.data.get("portal_category_ids", [])
+            if isinstance(manual_portal_category_ids, str):
+                try:
+                    manual_portal_category_ids = json.loads(manual_portal_category_ids)
+                except Exception:
+                    manual_portal_category_ids = []
 
-            # 4. Handle excluded portals
-            excluded_portals = request.data.get("excluded_portals") or news_post.excluded_portals or []
-            if isinstance(excluded_portals, str):
-                excluded_portals = json.loads(excluded_portals)
-            if not isinstance(excluded_portals, list):
-                excluded_portals = []
+            if manual_portal_category_ids:
+                extra_portal_categories = (
+                    PortalCategory.objects.filter(id__in=manual_portal_category_ids)
+                    .select_related("portal")
+                    .exclude(id__in=[m.portal_category_id for m in mappings])
+                )
+
+                # Wrap manual ones in temporary mapping-like objects
+                for portal_cat in extra_portal_categories:
+                    fake_mapping = SimpleNamespace(
+                        portal_category=portal_cat,
+                        use_default_content=False,
+                    )
+                    mappings.append(fake_mapping)
+
+            # 4. Handle excluded portal categories
+            excluded_portal_category_ids = request.data.get("exclude_portal_categories") or news_post.excluded_portals or []
+
+            # Convert JSON string to list if needed
+            if isinstance(excluded_portal_category_ids, str):
+                try:
+                    excluded_portal_category_ids = json.loads(excluded_portal_category_ids)
+                except Exception:
+                    excluded_portal_category_ids = []
+
+            # Ensure it's a clean list of integers
+            excluded_portal_category_ids = [
+                int(x) for x in excluded_portal_category_ids if str(x).isdigit()
+            ]
 
             results = []
 
@@ -738,12 +774,12 @@ class MasterNewsPostPublishAPIView(APIView):
                 portal_category = mapping.portal_category
 
                 # Skip manually excluded
-                if portal.id in excluded_portals or portal.name in excluded_portals:
+                if portal_category.id in excluded_portal_category_ids:
                     results.append({
                         "portal": portal.name,
                         "category": portal_category.name,
                         "success": False,
-                        "response": "Skipped manually by user",
+                        "response": "Skipped manually (portal category excluded)",
                     })
                     continue
 
