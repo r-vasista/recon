@@ -729,7 +729,7 @@ class MasterNewsPostPublishAPIView(APIView):
             )
 
             # 3.1 Also include manually selected portal categories if provided
-            manual_portal_category_ids = request.data.get("portal_category_ids", [])
+            manual_portal_category_ids = (request.data.get("portal_category_ids") or news_post.portal_category_ids or [])
             if isinstance(manual_portal_category_ids, str):
                 try:
                     manual_portal_category_ids = json.loads(manual_portal_category_ids)
@@ -752,7 +752,7 @@ class MasterNewsPostPublishAPIView(APIView):
                     mappings.append(fake_mapping)
 
             # 4. Handle excluded portal categories
-            excluded_portal_category_ids = request.data.get("exclude_portal_categories") or news_post.excluded_portals or []
+            excluded_portal_category_ids = (request.data.get("exclude_portal_categories") or news_post.exclude_portal_categories or [])
 
             # Convert JSON string to list if needed
             if isinstance(excluded_portal_category_ids, str):
@@ -939,7 +939,6 @@ class MasterNewsPostPublishAPIView(APIView):
 
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)       
-   
         
 class NewsPostCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -951,13 +950,17 @@ class NewsPostCreateAPIView(APIView):
             data["created_by"] = request.user.id
             data["status"] = data.get("status", "PUBLISHED")
 
-            # Convert excluded_portals to list if provided as string (common case in JSON)
-            excluded_portals = data.get("excluded_portals")
-            if isinstance(excluded_portals, str):
-                try:
-                    data["excluded_portals"] = json.loads(excluded_portals)
-                except Exception:
-                    data["excluded_portals"] = []
+            # Convert JSON strings to list safely
+            json_fields = ["excluded_portals", "portal_category_ids", "exclude_portal_categories"]
+            for field in json_fields:
+                value = data.get(field)
+                if isinstance(value, str):
+                    try:
+                        data[field] = json.loads(value)
+                    except Exception:
+                        data[field] = []
+                elif not isinstance(value, list):
+                    data[field] = []
 
             serializer = MasterNewsPostSerializer(data=data)
             if serializer.is_valid():
@@ -968,6 +971,7 @@ class NewsPostCreateAPIView(APIView):
                     else "News post created successfully."
                 )
                 return Response(success_response(serializer.data, msg), status=status.HTTP_201_CREATED)
+
             return Response(error_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
