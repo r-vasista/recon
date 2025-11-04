@@ -137,6 +137,8 @@ class MasterNewsPost(BaseModel):
         MasterCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name="news_posts"
     )
     excluded_portals = models.JSONField(null=True, blank=True, default=list)
+    portal_category_ids = models.JSONField(null=True, blank=True, default=list)
+    exclude_portal_categories = models.JSONField(null=True, blank=True, default=list)
 
     # Meta info
     created_at = models.DateTimeField(auto_now_add=True)
