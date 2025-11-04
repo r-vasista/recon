@@ -688,65 +688,57 @@ class MasterNewsPostPublishAPIView(APIView):
     """
     POST /api/master-news/{id}/publish/
     Publishes a MasterNewsPost to portals mapped under the selected master category.
+    Creates NewsDistribution entries upfront with status='PENDING'.
+    If AI or posting fails, updates them with 'FAILED' and error message.
     """
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
-        logger.info("========== [START] News Publish Triggered ==========")
-        logger.info("Request received for post ID: %s by user: %s", pk, request.user)
-
         try:
             user = request.user
+
+            # 1. Validate MasterNewsPost
             news_post = get_object_or_404(MasterNewsPost, pk=pk)
-            logger.info("[STEP 1] Fetched MasterNewsPost: %s", news_post.title)
 
-            # Master category ID
             master_category_id = request.data.get("master_category_id") or getattr(news_post.master_category, "id", None)
-            logger.info("[STEP 2] master_category_id: %s", master_category_id)
             if not master_category_id:
-                logger.error("Master category missing.")
-                return Response(error_response("master_category_id missing."), status=400)
+                return Response(error_response("master_category_id is missing and not saved in post."), status=400)
 
-            # Validate user assignment
+            # 2. Validate user assignment
             assignment = UserCategoryGroupAssignment.objects.filter(
                 user=user, master_category_id=master_category_id
             ).first()
             if not assignment:
-                logger.warning("[STEP 3] User %s not assigned to master_category_id %s", user, master_category_id)
-                return Response(error_response("User not assigned to this master category."), status=403)
-            logger.info("[STEP 3] User assignment verified.")
+                return Response(
+                    error_response("You are not assigned to this master category."),
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
-            # Get mappings
+            # 3. Get portal mappings
             mappings = MasterCategoryMapping.objects.filter(
                 master_category_id=master_category_id
             ).select_related("portal_category", "portal_category__portal")
-            logger.info("[STEP 4] Found %d portal mappings", mappings.count())
 
             if not mappings.exists():
-                logger.warning("No portal mappings found for master_category_id: %s", master_category_id)
                 return Response(error_response("No portals mapped for this master category."), status=400)
 
+            # 4. Handle excluded portals
             excluded_portals = request.data.get("excluded_portals") or news_post.excluded_portals or []
             if isinstance(excluded_portals, str):
-                try:
-                    excluded_portals = json.loads(excluded_portals)
-                except Exception:
-                    excluded_portals = []
+                excluded_portals = json.loads(excluded_portals)
             if not isinstance(excluded_portals, list):
                 excluded_portals = []
 
-            logger.info("[STEP 5] Excluded portals: %s", excluded_portals)
             results = []
 
-            # Iterate through mapped portals
+            # 5. Process each portal mapping
             for mapping in mappings:
                 portal = mapping.portal_category.portal
                 portal_category = mapping.portal_category
-                logger.info("\n------- [PORTAL LOOP] Processing: %s -------", portal.name)
 
+                # Skip manually excluded
                 if portal.id in excluded_portals or portal.name in excluded_portals:
-                    logger.info("[SKIP] Portal %s excluded manually.", portal.name)
                     results.append({
                         "portal": portal.name,
                         "category": portal_category.name,
@@ -755,7 +747,7 @@ class MasterNewsPostPublishAPIView(APIView):
                     })
                     continue
 
-                # STEP A: Create or reset NewsDistribution first
+                # Existing distribution or create pending
                 dist, created = NewsDistribution.objects.get_or_create(
                     news_post=news_post,
                     portal=portal,
@@ -763,83 +755,95 @@ class MasterNewsPostPublishAPIView(APIView):
                         "portal_category": portal_category,
                         "master_category_id": master_category_id,
                         "status": "PENDING",
-                        "response_message": "Queued for AI generation",
+                        "response_message": "Queued for publishing",
                         "started_at": timezone.now(),
                     },
                 )
-                if not created:
+
+                # Skip if already successful
+                if dist.status == "SUCCESS":
+                    results.append({
+                        "portal": portal.name,
+                        "category": portal_category.name,
+                        "success": True,
+                        "response": "Already published successfully, skipped.",
+                    })
+                    continue
+
+                # Increment retry if failed previously
+                if dist.status == "FAILED":
+                    dist.retry_count += 1
                     dist.status = "PENDING"
-                    dist.response_message = "Queued for AI generation"
-                    dist.started_at = timezone.now()
-                    dist.completed_at = None
-                    dist.save(update_fields=["status", "response_message", "started_at", "completed_at"])
+                    dist.response_message = "Retrying..."
+                    dist.save(update_fields=["retry_count", "status", "response_message"])
 
                 start_time = time.perf_counter()
 
-                # STEP B: Generate AI Content
-                if mapping.use_default_content:
-                    rewritten_title = news_post.title
-                    rewritten_short = news_post.short_description
-                    rewritten_content = news_post.content
-                    rewritten_meta = news_post.meta_title or news_post.title
-                    rewritten_slug = news_post.slug or slugify(news_post.meta_title or news_post.title)
-                    logger.info("[STEP 6] Using default content for %s", portal.name)
-                else:
-                    portal_prompt = (
-                        PortalPrompt.objects.filter(portal=portal, is_active=True).first()
-                        or PortalPrompt.objects.filter(portal__isnull=True, is_active=True).first()
-                    )
-                    prompt_text = portal_prompt.prompt_text if portal_prompt else "Rewrite for clarity and engagement."
-                    logger.info("[STEP 6] Generating AI variation for portal: %s", portal.name)
-                    logger.info("AI input -> title: %s | short: %s | content length: %s",
-                                news_post.title, len(news_post.short_description or ""), len(news_post.content or ""))
+                # 6. AI generation
+                try:
+                    if mapping.use_default_content:
+                        rewritten_title = news_post.title
+                        rewritten_short = news_post.short_description
+                        rewritten_content = news_post.content
+                        rewritten_meta = news_post.meta_title or news_post.title
+                        rewritten_slug = news_post.slug or slugify(news_post.meta_title or news_post.title)
+                    else:
+                        portal_prompt = (
+                            PortalPrompt.objects.filter(portal=portal, is_active=True).first()
+                            or PortalPrompt.objects.filter(portal__isnull=True, is_active=True).first()
+                        )
+                        prompt_text = (
+                            portal_prompt.prompt_text
+                            if portal_prompt
+                            else "Rewrite the content slightly for clarity and engagement."
+                        )
 
-                    rewritten_title, rewritten_short, rewritten_content, rewritten_meta, rewritten_slug = generate_variation_with_gpt(
-                        news_post.title,
-                        news_post.short_description,
-                        news_post.content,
-                        prompt_text,
-                        news_post.meta_title,
-                        news_post.slug,
-                        portal_name=portal.name,
-                    )
+                        result = generate_variation_with_gpt(
+                            news_post.title,
+                            news_post.short_description,
+                            news_post.content,
+                            prompt_text,
+                            news_post.meta_title,
+                            news_post.slug,
+                            portal_name=portal.name,
+                        )
 
-                    logger.info("[STEP 7] AI rewrite complete for %s", portal.name)
+                        if not result:
+                            raise ValueError("AI generation failed — no data returned")
 
-                # STEP C: Update Distribution with AI content (still pending)
-                dist.ai_title = rewritten_title
-                dist.ai_short_description = rewritten_short
-                dist.ai_content = rewritten_content
-                dist.ai_meta_title = rewritten_meta
-                dist.ai_slug = rewritten_slug
-                dist.response_message = "AI generation completed"
-                dist.save(update_fields=[
-                    "ai_title", "ai_short_description", "ai_content", "ai_meta_title", "ai_slug", "response_message"
-                ])
-                logger.info("[STEP 7.5] Saved AI variation for %s (status still PENDING)", portal.name)
+                        rewritten_title, rewritten_short, rewritten_content, rewritten_meta, rewritten_slug = result
 
-                # STEP D: If only AI generation needed — comment out below block 👇
-                # ======================= PUBLISH BLOCK START ======================= #
+                except Exception as e:    
+                    dist.status = "FAILED"
+                    dist.response_message = f"AI generation failed: {str(e)}"
+                    dist.completed_at = timezone.now()
+                    dist.save(update_fields=["status", "response_message", "completed_at"])
+
+                    results.append({
+                        "portal": portal.name,
+                        "category": portal_category.name,
+                        "success": False,
+                        "response": f"AI generation failed: {str(e)}",
+                    })
+                    continue  # skip posting for this portal
+
+                # 7. Get portal user mapping
                 portal_user = PortalUserMapping.objects.filter(user=user, portal=portal, status="MATCHED").first()
                 if not portal_user:
-                    logger.error("[ERROR] No portal user mapping found for %s", portal.name)
                     dist.status = "FAILED"
                     dist.response_message = "No valid portal user mapping found."
                     dist.completed_at = timezone.now()
                     dist.save(update_fields=["status", "response_message", "completed_at"])
+
                     results.append({
                         "portal": portal.name,
                         "category": portal_category.name,
                         "success": False,
                         "response": "No valid portal user mapping found.",
                     })
-                    continue
+                    continue                
 
-                # Safe Date Handling
-                event_date = news_post.Event_date or timezone.now().date()
-                event_end_date = news_post.Event_end_date or timezone.now().date()
-                schedule_dt = news_post.schedule_date or timezone.now()
-
+                # 8. Prepare payload
                 payload = {
                     "post_cat": portal_category.external_id if portal_category else None,
                     "post_title": rewritten_title,
@@ -849,9 +853,9 @@ class MasterNewsPostPublishAPIView(APIView):
                     "slug": rewritten_slug,
                     "post_tag": news_post.post_tag or "",
                     "author": portal_user.portal_user_id,
-                    "Event_date": event_date.isoformat(),
-                    "Eventend_date": event_end_date.isoformat(),
-                    "schedule_date": getattr(schedule_dt, "date", lambda: schedule_dt)().isoformat(),
+                    "Event_date": (news_post.Event_date or timezone.now().date()).isoformat(),
+                    "Eventend_date": (news_post.Event_end_date or timezone.now().date()).isoformat(),
+                    "schedule_date": (news_post.schedule_date or timezone.now()).isoformat(),
                     "is_active": int(bool(news_post.latest_news)) if news_post.latest_news is not None else 0,
                     "Event": int(bool(news_post.upcoming_event)) if news_post.upcoming_event is not None else 0,
                     "Head_Lines": int(bool(news_post.Head_Lines)) if news_post.Head_Lines is not None else 0,
@@ -860,52 +864,46 @@ class MasterNewsPostPublishAPIView(APIView):
                     "BreakingNews": int(bool(news_post.BreakingNews)) if news_post.BreakingNews is not None else 0,
                     "post_status": news_post.counter or 0,
                 }
+                files = {"post_image": open(news_post.post_image.path, "rb")} if news_post.post_image else {}
 
-                logger.info("[STEP 8] Prepared payload for %s | Keys: %s", portal.name, list(payload.keys()))
-                logger.info("[DEBUG] Payload Preview for %s: %s", portal.name, json.dumps(payload, default=str)[:500])
-
-                api_url = f"{portal.base_url}/api/create-news/"
+                # 9. Call portal API
                 try:
-                    if news_post.post_image:
-                        with open(news_post.post_image.path, "rb") as f:
-                            files = {"post_image": f}
-                            response = requests.post(api_url, data=payload, files=files, timeout=REQUEST_TIMEOUT_SECS)
-                    else:
-                        response = requests.post(api_url, data=payload, timeout=REQUEST_TIMEOUT_SECS)
-
+                    api_url = f"{portal.base_url}/api/create-news/"
+                    response = requests.post(api_url, data=payload, files=files, timeout=90)
                     success = response.status_code in [200, 201]
                     response_msg = response.text
-                    logger.info("[STEP 9] Response from %s -> Code: %s | Success: %s", portal.name, response.status_code, success)
                 except Exception as e:
                     success = False
-                    response_msg = f"Error during request: {str(e)}"
-                    logger.exception("[ERROR] Exception while posting to %s: %s", portal.name, str(e))
+                    response_msg = str(e)
 
                 elapsed_time = round(time.perf_counter() - start_time, 2)
-                logger.info("[STEP 10] Portal %s completed in %.2fs", portal.name, elapsed_time)
 
+                # 10. Update distribution
                 dist.status = "SUCCESS" if success else "FAILED"
                 dist.response_message = response_msg
+                dist.ai_title = rewritten_title
+                dist.ai_short_description = rewritten_short
+                dist.ai_content = rewritten_content
+                dist.ai_meta_title = rewritten_meta
+                dist.ai_slug = rewritten_slug
                 dist.time_taken = elapsed_time
+                dist.started_at = timezone.now() - timezone.timedelta(seconds=elapsed_time)
                 dist.completed_at = timezone.now()
-                dist.save(update_fields=["status", "response_message", "time_taken", "completed_at"])
-                # ======================= PUBLISH BLOCK END ======================= #
+                dist.save()
 
                 results.append({
                     "portal": portal.name,
                     "category": portal_category.name,
-                    "success": dist.status == "SUCCESS",
-                    "response": dist.response_message[:300],
-                    "time_taken": getattr(dist, "time_taken", None),
+                    "success": success,
+                    "response": response_msg,
+                    "time_taken": elapsed_time,
                 })
 
-            logger.info("========== [COMPLETE] All Portals Processed ==========")
             return Response(success_response(results, "News published successfully."))
 
         except Exception as e:
-            logger.exception("❌ Outer crash in Publish API: %s", str(e))
-            return Response(error_response(str(e)), status=500)
-        
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)       
+   
         
 class NewsPostCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
