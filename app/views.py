@@ -1582,7 +1582,7 @@ class MyPostsListAPIView(APIView, PaginationMixin):
             master_category_id = params.get("master_category")
             sort_option = params.get("sort", "publish_date_desc")
             selected_user_id = params.get("user_id")
-            date_filter = params.get("date_filter")  # today | yesterday | 7d | custom
+            date_filter = params.get("date_filter", "today")  # today | yesterday | 7d | custom
 
             start_date = params.get("start_date")
             end_date = params.get("end_date")
