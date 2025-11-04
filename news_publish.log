@@ -1,8 +1,255 @@
-[2025-11-01 11:56:54,593] INFO news_publish — Publishing to newsibleasia started.
-[2025-11-01 11:56:55,496] INFO news_publish — Publishing to newsibleasia finished with SUCCESS.
-[2025-11-01 11:56:55,497] INFO news_publish — Publishing to gccnews started.
-[2025-11-01 11:57:48,332] INFO news_publish — Publishing to gccnews finished with FAILED.
-[2025-11-01 11:57:48,332] INFO news_publish — Publishing to cninews started.
-[2025-11-01 11:58:42,236] INFO news_publish — Publishing to cninews finished with SUCCESS.
-[2025-11-01 11:58:42,237] INFO news_publish — Publishing to middleeastbulletin started.
-[2025-11-01 11:59:38,098] INFO news_publish — Publishing to middleeastbulletin finished with FAILED.
+[2025-11-03 11:34:51,723] INFO news_publish — ========== [START] News Publish Triggered ==========
+[2025-11-03 11:34:51,724] INFO news_publish — Request received for post ID: 79 by user: vasista
+[2025-11-03 11:34:51,724] INFO news_publish — [STEP 1] Fetched MasterNewsPost: News bug retest 8
+[2025-11-03 11:34:51,725] INFO news_publish — [STEP 2] master_category_id: 10
+[2025-11-03 11:34:51,727] INFO news_publish — [STEP 3] User assignment verified.
+[2025-11-03 11:34:51,727] INFO news_publish — [STEP 4] Found 4 portal mappings
+[2025-11-03 11:34:51,728] INFO news_publish — [STEP 5] Excluded portals: []
+[2025-11-03 11:34:51,729] INFO news_publish — 
+------- [PORTAL LOOP] Processing: newsibleasia -------
+[2025-11-03 11:34:51,731] INFO news_publish — [STEP 6] Using default content for newsibleasia
+[2025-11-03 11:34:51,732] INFO news_publish — [STEP 8] Prepared payload for newsibleasia | Keys: ['post_cat', 'post_title', 'post_short_des', 'post_des', 'meta_title', 'slug', 'post_tag', 'author', 'Event_date', 'Eventend_date', 'schedule_date', 'is_active', 'Event', 'Head_Lines', 'articles', 'trending', 'BreakingNews', 'post_status']
+[2025-11-03 11:34:51,732] INFO news_publish — [DEBUG] Payload Preview for newsibleasia: {"post_cat": "22", "post_title": "News bug retest 8", "post_short_des": "A huge blast at a Tennessee military explosives plant leaves 19 missing and several dead, as authorities search the destroyed site for survivors", "post_des": "<p>A massive explosion tore through a military explosives plant in Hickman County, Tennessee, on Friday, leaving 19 people missing and several others dead, officials said. The cause of the blast remains unknown, and authorities warned that the investigation could tak
+[2025-11-03 11:34:51,885] INFO news_publish — [STEP 9] Response from newsibleasia -> Code: 201 | Success: True
+[2025-11-03 11:34:51,885] INFO news_publish — [STEP 10] Portal newsibleasia completed in 0.15s
+[2025-11-03 11:34:51,955] INFO news_publish — 
+------- [PORTAL LOOP] Processing: gccnews -------
+[2025-11-03 11:34:51,958] INFO news_publish — [STEP 6] Generating AI variation for portal: gccnews
+[2025-11-03 11:34:51,958] INFO news_publish — AI input -> title: News bug retest 8 | short: 144 | content length: 2465
+[2025-11-03 11:35:25,625] INFO news_publish — [STEP 7] AI rewrite complete for gccnews
+[2025-11-03 11:35:25,626] INFO news_publish — [STEP 8] Prepared payload for gccnews | Keys: ['post_cat', 'post_title', 'post_short_des', 'post_des', 'meta_title', 'slug', 'post_tag', 'author', 'Event_date', 'Eventend_date', 'schedule_date', 'is_active', 'Event', 'Head_Lines', 'articles', 'trending', 'BreakingNews', 'post_status']
+[2025-11-03 11:35:25,627] INFO news_publish — [DEBUG] Payload Preview for gccnews: {"post_cat": "2", "post_title": "Massive blast at Tennessee explosives plant leaves 19 missing", "post_short_des": "A massive blast at a Tennessee explosives plant left 19 people missing and several dead as crews search the devastated site.", "post_des": "<p>A powerful explosion ripped through a military explosives facility in Hickman County, Tennessee, on Friday, leaving 19 people unaccounted for and several others confirmed dead, officials said. The source of the blast is still under investiga
+[2025-11-03 11:35:25,897] INFO news_publish — [STEP 9] Response from gccnews -> Code: 201 | Success: True
+[2025-11-03 11:35:25,897] INFO news_publish — [STEP 10] Portal gccnews completed in 33.94s
+[2025-11-03 11:35:26,011] INFO news_publish — 
+------- [PORTAL LOOP] Processing: cninews -------
+[2025-11-03 11:35:26,014] INFO news_publish — [STEP 6] Generating AI variation for portal: cninews
+[2025-11-03 11:35:26,014] INFO news_publish — AI input -> title: News bug retest 8 | short: 144 | content length: 2465
+[2025-11-03 11:36:03,181] INFO news_publish — [STEP 7] AI rewrite complete for cninews
+[2025-11-03 11:36:03,182] INFO news_publish — [STEP 8] Prepared payload for cninews | Keys: ['post_cat', 'post_title', 'post_short_des', 'post_des', 'meta_title', 'slug', 'post_tag', 'author', 'Event_date', 'Eventend_date', 'schedule_date', 'is_active', 'Event', 'Head_Lines', 'articles', 'trending', 'BreakingNews', 'post_status']
+[2025-11-03 11:36:03,182] INFO news_publish — [DEBUG] Payload Preview for cninews: {"post_cat": "26", "post_title": "Hickman County blast at explosives plant leaves 19 missing, several dead", "post_short_des": "A Tennessee explosives plant explosion left 19 people unaccounted for and multiple fatalities as crews search the devastated site.", "post_des": "<p>A massive explosion ripped through a military explosives plant in Hickman County, Tennessee, on Friday, leaving 19 people unaccounted for and several confirmed dead, officials said. The origin of the blast remains unknown, 
+[2025-11-03 11:36:05,207] ERROR news_publish — [ERROR] Exception while posting to cninews: HTTPConnectionPool(host='127.0.0.1', port=8003): Max retries exceeded with url: /cninews/api/create-news/ (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002897E53A5D0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+Traceback (most recent call last):
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connection.py", line 198, in _new_conn
+    sock = connection.create_connection(
+        (self._dns_host, self.port),
+    ...<2 lines>...
+        socket_options=self.socket_options,
+    )
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\util\connection.py", line 85, in create_connection
+    raise err
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\util\connection.py", line 73, in create_connection
+    sock.connect(sa)
+    ~~~~~~~~~~~~^^^^
+ConnectionRefusedError: [WinError 10061] No connection could be made because the target machine actively refused it
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+        conn,
+    ...<10 lines>...
+        **response_kw,
+    )
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connectionpool.py", line 493, in _make_request
+    conn.request(
+    ~~~~~~~~~~~~^
+        method,
+        ^^^^^^^
+    ...<6 lines>...
+        enforce_content_length=enforce_content_length,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connection.py", line 494, in request
+    self.endheaders()
+    ~~~~~~~~~~~~~~~^^
+  File "D:\Users\VASISTA\Lib\http\client.py", line 1333, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Users\VASISTA\Lib\http\client.py", line 1093, in _send_output
+    self.send(msg)
+    ~~~~~~~~~^^^^^
+  File "D:\Users\VASISTA\Lib\http\client.py", line 1037, in send
+    self.connect()
+    ~~~~~~~~~~~~^^
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connection.py", line 325, in connect
+    self.sock = self._new_conn()
+                ~~~~~~~~~~~~~~^^
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connection.py", line 213, in _new_conn
+    raise NewConnectionError(
+        self, f"Failed to establish a new connection: {e}"
+    ) from e
+urllib3.exceptions.NewConnectionError: <urllib3.connection.HTTPConnection object at 0x000002897E53A5D0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\requests\adapters.py", line 644, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\util\retry.py", line 519, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='127.0.0.1', port=8003): Max retries exceeded with url: /cninews/api/create-news/ (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002897E53A5D0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "E:\Users\VASISTA\mi_projs\recon\app\views.py", line 852, in post
+    response = requests.post(api_url, data=payload, files=files, timeout=REQUEST_TIMEOUT_SECS)
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\requests\api.py", line 115, in post
+    return request("post", url, data=data, json=json, **kwargs)
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\requests\api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\requests\sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\requests\sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\requests\adapters.py", line 677, in send
+    raise ConnectionError(e, request=request)
+requests.exceptions.ConnectionError: HTTPConnectionPool(host='127.0.0.1', port=8003): Max retries exceeded with url: /cninews/api/create-news/ (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002897E53A5D0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[2025-11-03 11:36:05,214] INFO news_publish — [STEP 10] Portal cninews completed in 39.20s
+[2025-11-03 11:36:06,413] INFO news_publish — 
+------- [PORTAL LOOP] Processing: middleeastbulletin -------
+[2025-11-03 11:36:06,416] INFO news_publish — [STEP 6] Generating AI variation for portal: middleeastbulletin
+[2025-11-03 11:36:06,416] INFO news_publish — AI input -> title: News bug retest 8 | short: 144 | content length: 2465
+[2025-11-03 11:36:34,517] INFO news_publish — [STEP 7] AI rewrite complete for middleeastbulletin
+[2025-11-03 11:36:34,518] INFO news_publish — [STEP 8] Prepared payload for middleeastbulletin | Keys: ['post_cat', 'post_title', 'post_short_des', 'post_des', 'meta_title', 'slug', 'post_tag', 'author', 'Event_date', 'Eventend_date', 'schedule_date', 'is_active', 'Event', 'Head_Lines', 'articles', 'trending', 'BreakingNews', 'post_status']
+[2025-11-03 11:36:34,518] INFO news_publish — [DEBUG] Payload Preview for middleeastbulletin: {"post_cat": "87", "post_title": "Tennessee explosives plant blast leaves 19 missing, several dead", "post_short_des": "A massive blast at a Tennessee explosives plant leaves 19 people missing and several dead as crews search the devastated site for survivors.", "post_des": "<p>A massive explosion ripped through a military explosives plant in Hickman County, Tennessee, on Friday, leaving 19 people unaccounted for and several others dead, officials said. The origin of the blast is still under inv
+[2025-11-03 11:36:36,538] ERROR news_publish — [ERROR] Exception while posting to middleeastbulletin: HTTPConnectionPool(host='127.0.0.1', port=8004): Max retries exceeded with url: /middleeastbulletin/api/create-news/ (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002897E07CB00>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+Traceback (most recent call last):
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connection.py", line 198, in _new_conn
+    sock = connection.create_connection(
+        (self._dns_host, self.port),
+    ...<2 lines>...
+        socket_options=self.socket_options,
+    )
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\util\connection.py", line 85, in create_connection
+    raise err
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\util\connection.py", line 73, in create_connection
+    sock.connect(sa)
+    ~~~~~~~~~~~~^^^^
+ConnectionRefusedError: [WinError 10061] No connection could be made because the target machine actively refused it
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+        conn,
+    ...<10 lines>...
+        **response_kw,
+    )
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connectionpool.py", line 493, in _make_request
+    conn.request(
+    ~~~~~~~~~~~~^
+        method,
+        ^^^^^^^
+    ...<6 lines>...
+        enforce_content_length=enforce_content_length,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connection.py", line 494, in request
+    self.endheaders()
+    ~~~~~~~~~~~~~~~^^
+  File "D:\Users\VASISTA\Lib\http\client.py", line 1333, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Users\VASISTA\Lib\http\client.py", line 1093, in _send_output
+    self.send(msg)
+    ~~~~~~~~~^^^^^
+  File "D:\Users\VASISTA\Lib\http\client.py", line 1037, in send
+    self.connect()
+    ~~~~~~~~~~~~^^
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connection.py", line 325, in connect
+    self.sock = self._new_conn()
+                ~~~~~~~~~~~~~~^^
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connection.py", line 213, in _new_conn
+    raise NewConnectionError(
+        self, f"Failed to establish a new connection: {e}"
+    ) from e
+urllib3.exceptions.NewConnectionError: <urllib3.connection.HTTPConnection object at 0x000002897E07CB00>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\requests\adapters.py", line 644, in send
+    resp = conn.urlopen(
+        method=request.method,
+    ...<9 lines>...
+        chunked=chunked,
+    )
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+        method, url, error=new_e, _pool=self, _stacktrace=sys.exc_info()[2]
+    )
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\urllib3\util\retry.py", line 519, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='127.0.0.1', port=8004): Max retries exceeded with url: /middleeastbulletin/api/create-news/ (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002897E07CB00>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "E:\Users\VASISTA\mi_projs\recon\app\views.py", line 852, in post
+    response = requests.post(api_url, data=payload, files=files, timeout=REQUEST_TIMEOUT_SECS)
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\requests\api.py", line 115, in post
+    return request("post", url, data=data, json=json, **kwargs)
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\requests\api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\requests\sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\requests\sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+  File "E:\Users\VASISTA\mi_projs\recon\env\Lib\site-packages\requests\adapters.py", line 677, in send
+    raise ConnectionError(e, request=request)
+requests.exceptions.ConnectionError: HTTPConnectionPool(host='127.0.0.1', port=8004): Max retries exceeded with url: /middleeastbulletin/api/create-news/ (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002897E07CB00>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[2025-11-03 11:36:36,544] INFO news_publish — [STEP 10] Portal middleeastbulletin completed in 30.13s
+[2025-11-03 11:36:37,046] INFO news_publish — ========== [COMPLETE] All Portals Processed ==========
+[2025-11-03 18:38:33,991] INFO news_publish — ========== [START] News Publish Triggered ==========
+[2025-11-03 18:38:34,081] INFO news_publish — Request received for post ID: 80 by user: vasista
+[2025-11-03 18:38:34,084] INFO news_publish — [STEP 1] Fetched MasterNewsPost: News bug retest 9
+[2025-11-03 18:38:34,086] INFO news_publish — [STEP 2] master_category_id: 10
+[2025-11-03 18:38:34,088] INFO news_publish — [STEP 3] User assignment verified.
+[2025-11-03 18:38:34,092] INFO news_publish — [STEP 4] Found 4 portal mappings
+[2025-11-03 18:38:34,092] INFO news_publish — [STEP 5] Excluded portals: []
+[2025-11-03 18:38:34,095] INFO news_publish — 
+------- [PORTAL LOOP] Processing: newsibleasia -------
+[2025-11-03 18:38:34,439] INFO news_publish — [STEP 6] Using default content for newsibleasia
+[2025-11-03 18:38:34,494] INFO news_publish — [STEP 7.5] Saved AI variation for newsibleasia (status still PENDING)
+[2025-11-03 18:38:34,495] INFO news_publish — 
+------- [PORTAL LOOP] Processing: gccnews -------
+[2025-11-03 18:38:34,544] INFO news_publish — [STEP 6] Generating AI variation for portal: gccnews
+[2025-11-03 18:38:34,545] INFO news_publish — AI input -> title: News bug retest 9 | short: 144 | content length: 2465
+[2025-11-03 18:39:44,076] INFO news_publish — [STEP 7] AI rewrite complete for gccnews
+[2025-11-03 18:39:44,420] INFO news_publish — [STEP 7.5] Saved AI variation for gccnews (status still PENDING)
+[2025-11-03 18:39:44,420] INFO news_publish — 
+------- [PORTAL LOOP] Processing: cninews -------
+[2025-11-03 18:39:44,469] INFO news_publish — [STEP 6] Generating AI variation for portal: cninews
+[2025-11-03 18:39:44,469] INFO news_publish — AI input -> title: News bug retest 9 | short: 144 | content length: 2465
+[2025-11-03 18:40:21,011] INFO news_publish — [STEP 7] AI rewrite complete for cninews
+[2025-11-03 18:40:21,525] INFO news_publish — [STEP 7.5] Saved AI variation for cninews (status still PENDING)
+[2025-11-03 18:40:21,525] INFO news_publish — 
+------- [PORTAL LOOP] Processing: middleeastbulletin -------
+[2025-11-03 18:40:21,574] INFO news_publish — [STEP 6] Generating AI variation for portal: middleeastbulletin
+[2025-11-03 18:40:21,574] INFO news_publish — AI input -> title: News bug retest 9 | short: 144 | content length: 2465
+[2025-11-03 18:41:13,044] INFO news_publish — [STEP 7] AI rewrite complete for middleeastbulletin
+[2025-11-03 18:41:15,321] INFO news_publish — [STEP 7.5] Saved AI variation for middleeastbulletin (status still PENDING)
+[2025-11-03 18:41:15,322] INFO news_publish — ========== [COMPLETE] All Portals Processed ==========
+[2025-11-03 20:00:01,915] INFO news_publish — ========== [TEST START] PublishTimeoutTestAPIView ==========
+[2025-11-03 20:00:02,094] INFO news_publish — Start time: 2025-11-03 14:30:01.915150+00:00
+[2025-11-03 20:00:02,095] INFO news_publish — Sleeping for 60 seconds to simulate long processing...
+[2025-11-03 20:01:02,096] INFO news_publish — ========== [TEST END] PublishTimeoutTestAPIView ==========
+[2025-11-03 20:01:02,096] INFO news_publish — End time: 2025-11-03 14:31:02.096276+00:00 | Duration: 60.18s

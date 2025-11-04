@@ -18,105 +18,102 @@ def success_response(data, message = None):
 def error_response(message):
     return {"status": False, "message":message}
 
-def generate_variation_with_gpt(
-    title,
-    short_desc,
-    desc,
-    prompt_text,
-    meta_title=None,
-    slug=None,
-    portal_name=None,
-):
+def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title=None, slug=None, portal_name=None):
     """
     Generate rephrased version of news fields using GPT.
+    Always tries to parse JSON safely.
+    Handles:
+      - dict responses
+      - list responses
+      - nested dicts (e.g. {'dxbnewsnetwork.com': {...}})
     Returns (title, short_desc, desc, meta_title, slug) or None if failed.
-    Safe JSON parsing + resilience for dict/list/nested dict payloads.
     """
     logger.info("Started AI generation for portal: %s", portal_name)
 
-    base_meta = meta_title or title or ""
-    base_slug = slug or slugify(base_meta) or ""
 
     user_content = f"""
-Rewrite the following news content for the portal.
-Each portal must have a unique variation of the rewritten content.
+    Rewrite the following news content for the portal
+    Each portal must have a unique variation of the rewritten content.
 
-Rules:
-- Preserve all HTML tags, attributes, styles, images, links, lists, and formatting inside the description.
-- Rewrite the textual content for: title, short_description, description, and meta_title.
-- short_description must be 1–2 sentences (<160 chars) summarizing the rewritten description.
-- Generate a slug as a clean, URL-safe version of the rewritten meta_title (lowercase, hyphen separated).
-- Ensure wording differs slightly for each portal, but keep meaning intact.
-- Do not remove, add, or modify any HTML structure.
+    Rules:
+    - Preserve all HTML tags, attributes, styles, images, links, lists, and formatting inside the description.
+    - Rewrite the textual content for: title, short_description, description, and meta_title.
+    - The short_description must be a concise 1–2 sentence less than 160 characters summary of the rewritten description.
+    - Generate a new slug as a clean, URL-safe version of the rewritten meta_title (lowercase, hyphen separated).
+    - Ensure wording differs slightly for each portal, but keep meaning intact.
+    - Do not remove, add, or modify any HTML structure.
 
-Return ONLY valid JSON with keys: title, short_description, description, meta_title, slug.
+    Return ONLY valid JSON with keys: title, short_description, description, meta_title, slug.
 
-{{
-  "title": "{(title or '').replace('"','\\\"')}",
-  "short_description": "{(short_desc or '').replace('"','\\\"')}",
-  "description": "{(desc or '').replace('"','\\\"')}",
-  "meta_title": "{(base_meta or '').replace('"','\\\"')}",
-  "slug": "{(base_slug or '').replace('"','\\\"')}"
-}}
-"""
+    {{
+        "title": "{title}",
+        "short_description": "{short_desc}",
+        "description": "{desc}",
+        "meta_title": "{meta_title or title}",
+        "slug": "{slug or slugify(meta_title or title)}",
+        "portal_name": "{portal_name or ''}"
+    }}
+    """
+
 
     try:
-        # NOTE: your client call kept as-is; add a light timeout if your SDK supports it.
         response = client.responses.create(
             model="gpt-5-mini",
             input=[
                 {"role": "developer", "content": prompt_text},
-                {"role": "user", "content": user_content},
+                {"role": "user", "content": user_content}
             ],
         )
 
-        content = (response.output_text or "").strip()
+        content = response.output_text.strip()
         logger.info("Raw GPT response (first 500 chars): %s", content[:500])
 
-        # ---- Safe JSON parsing with greedy fallback ----
+        # ---- Safe JSON Parsing ----
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
+
             import re
-            match = re.search(r"\{[\s\S]*\}|\[[\s\S]*\]", content)
-            if not match:
+            match = re.search(r"\{.*\}|\[.*\]", content, re.DOTALL)
+            if match:
+                data = json.loads(match.group(0))
+            else:
                 raise ValueError("No valid JSON structure in GPT response")
-            data = json.loads(match.group(0))
 
-        # If list, take first
+        # ---- Handle Lists ----
         if isinstance(data, list):
-            if not data:
-                raise ValueError("Empty list in GPT response")
-            data = data[0]
+            logger.warning("GPT returned list for %s — using first item", portal_name)
+            data = data[0] if data else {}
 
-        # If nested dict (e.g., {"domain.com": {...}})
-        if isinstance(data, dict):
-            keys = list(data.keys())
-            known = {"title", "short_description", "description", "meta_title", "slug"}
-            if keys and not (set(keys) & known):
-                # pick the first inner dict if shape is {something: {...}}
-                inner = data.get(keys[0], {})
-                if isinstance(inner, dict):
-                    data = inner
+        # ---- Handle Nested Dicts (e.g., {"dxbnewsnetwork.com": {...}}) ----
+        elif isinstance(data, dict) and len(data.keys()) >= 1:
+            # If the only key is not a known field, treat it as nested
+            first_key = list(data.keys())[0]
+            if first_key not in ["title", "short_description", "description", "meta_title", "slug"]:
+                logger.warning("GPT returned nested dict for %s — using inner value under key %s", portal_name, first_key)
+                data = data[first_key]
 
-        # Final validation
-        for k in ["title", "short_description", "description", "meta_title", "slug"]:
-            if k not in data or not data[k]:
-                raise ValueError(f"Missing/empty key '{k}' in GPT response")
+        # ---- Final Validation ----
+        required_keys = ["title", "short_description", "description", "meta_title", "slug"]
+
+        if not all(k in data and data[k] for k in required_keys):
+            raise ValueError(f"Missing or empty keys in GPT response: {data}")
 
         logger.info("Successfully generated AI variation for %s", portal_name)
 
         return (
-            data.get("title") or title or "",
-            data.get("short_description") or short_desc or "",
-            data.get("description") or desc or "",
-            data.get("meta_title") or base_meta,
-            data.get("slug") or base_slug,
+            data.get("title", title),
+            data.get("short_description", short_desc),
+            data.get("description", desc),
+            data.get("meta_title", meta_title or title),
+            data.get("slug", slug or slugify(meta_title or title)),
         )
+
 
     except Exception as e:
         logger.exception("AI generation failed for %s: %s", portal_name, str(e))
         return None
+    
 def get_portals_from_assignment(assignment):
     """
     Given a UserCategoryGroupAssignment, return all (portal, portal_category) pairs.
