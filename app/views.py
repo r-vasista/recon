@@ -2,11 +2,12 @@ import requests
 import json
 import time
 import logging
-from collections import defaultdict
+from statistics import mean
+from collections import defaultdict, Counter
 from django.utils import timezone
 from django.utils.timezone import now
-from django.db.models.functions import Coalesce
-from datetime import date
+from django.db.models.functions import Coalesce, ExtractHour, TruncDate
+from datetime import date, datetime
 from urllib.parse import urljoin
 from datetime import timedelta
 from types import SimpleNamespace
@@ -2699,3 +2700,172 @@ class UserPostStatsAPIView(APIView, PaginationMixin):
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class UserPerformanceAPIView(APIView):
+    """
+    GET /api/user-performance/<user_id>/?range=7d
+    Returns analytics summary for a given user's activity and performance.
+    Includes timeline with created, distributed, success, failed counts.
+    """
+
+    def get(self, request, user_id):
+        try:
+            # --- 1️⃣ Parse Date Range Filter ---
+            range_type = request.query_params.get("range", "7d")
+            start_date, end_date = self._get_date_range(range_type, request)
+
+            # --- 2️⃣ Fetch Posts in Range ---
+            posts = MasterNewsPost.objects.filter(
+                created_by_id=user_id,
+                created_at__date__range=[start_date, end_date]
+            )
+
+            if not posts.exists():
+                return Response(success_response({}, "No data found for this user in the selected range."), status=200)
+
+            # --- 3️⃣ Base Metrics ---
+            total_created = posts.count()
+            total_published = posts.filter(status="PUBLISHED").count()
+
+            distributions = NewsDistribution.objects.filter(
+                news_post__in=posts,
+                completed_at__date__range=[start_date, end_date]
+            )
+
+            total_success = distributions.filter(status="SUCCESS").count()
+            total_failed = distributions.filter(status="FAILED").count()
+            total_distributed = distributions.count()
+
+            success_rate = round(
+                (total_success / (total_success + total_failed)) * 100, 2
+            ) if (total_success + total_failed) > 0 else 0.0
+
+            # --- 4️⃣ Timeline: combine post creation + distributions ---
+            from django.db.models import Q
+
+            # Created posts per day
+            created_timeline = (
+                posts.annotate(date=TruncDate("created_at"))
+                .values("date")
+                .annotate(created_count=Count("id"))
+            )
+
+            # Distributions per day
+            dist_timeline = (
+                distributions.annotate(date=TruncDate("completed_at"))
+                .values("date")
+                .annotate(
+                    distributed_count=Count("id"),
+                    success_count=Count("id", filter=Q(status="SUCCESS")),
+                    failed_count=Count("id", filter=Q(status="FAILED")),
+                )
+            )
+
+            # Merge the two timelines
+            timeline_dict = {}
+            for entry in created_timeline:
+                date_str = str(entry["date"])
+                timeline_dict[date_str] = {
+                    "date": date_str,
+                    "created_count": entry["created_count"],
+                    "distributed_count": 0,
+                    "success_count": 0,
+                    "failed_count": 0,
+                }
+
+            for entry in dist_timeline:
+                date_str = str(entry["date"])
+                if date_str not in timeline_dict:
+                    timeline_dict[date_str] = {
+                        "date": date_str,
+                        "created_count": 0,
+                        "distributed_count": 0,
+                        "success_count": 0,
+                        "failed_count": 0,
+                    }
+                timeline_dict[date_str]["distributed_count"] += entry["distributed_count"]
+                timeline_dict[date_str]["success_count"] += entry["success_count"]
+                timeline_dict[date_str]["failed_count"] += entry["failed_count"]
+
+            # Sort timeline chronologically
+            timeline = sorted(timeline_dict.values(), key=lambda x: x["date"])
+
+            # --- 5️⃣ Average Time to Publish ---
+            publish_durations = []
+            for post in posts:
+                first_success = (
+                    NewsDistribution.objects.filter(
+                        news_post=post,
+                        status="SUCCESS",
+                        completed_at__isnull=False,
+                        completed_at__date__range=[start_date, end_date],
+                    )
+                    .order_by("completed_at")
+                    .first()
+                )
+                if first_success:
+                    delta = first_success.completed_at - post.created_at
+                    publish_durations.append(delta.total_seconds() / 3600)  # hours
+
+            avg_time_to_publish = round(mean(publish_durations), 2) if publish_durations else 0.0
+
+            # --- 6️⃣ Active Time Window ---
+            hours = posts.annotate(hour=ExtractHour("created_at")).values_list("hour", flat=True)
+            if hours:
+                hour_counts = Counter(hours)
+                active_start = min(hour_counts.keys())
+                active_end = max(hour_counts.keys())
+                active_window = f"{active_start}:00 - {active_end}:00"
+            else:
+                active_window = "No active hours recorded"
+
+            # --- 7️⃣ Final Response ---
+            response_data = {
+                "user_id": user_id,
+                "date_range": {
+                    "start_date": str(start_date),
+                    "end_date": str(end_date),
+                    "filter": range_type,
+                },
+                "total_output": {
+                    "created": total_created,
+                    "published": total_published,
+                    "distributed": total_distributed,
+                    "total_success": total_success,
+                    "total_failed": total_failed,
+                },
+                "success_rate": success_rate,
+                "average_time_to_publish_hours": avg_time_to_publish,
+                "active_time_window": active_window,
+                "timeline_of_actions": timeline,
+            }
+
+            return Response(success_response(response_data, "User performance stats retrieved."))
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+
+    # Helper function to compute date range
+    def _get_date_range(self, range_type, request):
+        now = timezone.localtime()
+        today = now.date()
+
+        if range_type == "today":
+            return today, today
+        elif range_type == "yesterday":
+            y = today - timedelta(days=1)
+            return y, y
+        elif range_type == "7d":
+            return today - timedelta(days=7), today
+        elif range_type == "1m":
+            return today - timedelta(days=30), today
+        elif range_type == "custom":
+            try:
+                start_date = datetime.strptime(request.query_params.get("start_date"), "%Y-%m-%d").date()
+                end_date = datetime.strptime(request.query_params.get("end_date"), "%Y-%m-%d").date()
+                return start_date, end_date
+            except Exception:
+                raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
+        else:
+            return today - timedelta(days=7), today
