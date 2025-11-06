@@ -7,7 +7,7 @@ from .views import (
     NewsDistributionDetailAPIView, AdminStatsAPIView, DomainDistributionStatsAPIView, AllPortalsTagsLiveAPIView, 
     NewsPostUpdateAPIView, MyPostsListAPIView, NewsReportAPIView, NewsKPIAPIView, PortalStatsAPIView, GlobalStatsAPIView,
     InactivityAlertsAPIView, NewsDistributionRateOverTimeAPIView, FailureReasonsStatsAPIView, MasterCategoryHeatmapAPIView,
-    UserPostStatsAPIView, UserPerformanceAPIView
+    UserPostStatsAPIView, UserPerformanceAPIView, NewsDistributionEditAPIView, NewsDistributionDeleteAPIView
 )
 
 urlpatterns = [
@@ -38,6 +38,8 @@ urlpatterns = [
     path('news/create/', NewsPostCreateAPIView.as_view()),
     path('news/update/<int:pk>/', NewsPostUpdateAPIView.as_view()),
     path('publish/news/<int:pk>/', MasterNewsPostPublishAPIView.as_view()),
+    path('edit/news/<int:pk>/', NewsDistributionEditAPIView.as_view()),
+    path('delete/news/<int:pk>/', NewsDistributionDeleteAPIView.as_view()),
     path('user/news/posts/', UserPostsListAPIView.as_view()),
     path('my/news/posts/', MyPostsListAPIView.as_view()),
     path('all/posts/', AllNewsPostsAPIView.as_view()),

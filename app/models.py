@@ -189,7 +189,8 @@ class NewsDistribution(BaseModel):
     ai_short_description = models.CharField(max_length=300, null=True, blank=True)
     ai_content = models.TextField(null=True, blank=True)
     ai_meta_title = models.CharField(max_length=255, null=True, blank=True)
-    ai_slug = models.SlugField(max_length=255, null=True, blank=True)        
+    ai_slug = models.SlugField(max_length=255, null=True, blank=True) 
+    edited_image = models.ImageField(upload_to="distribution_edits/%Y/%m/%d/", null=True, blank=True, help_text="Edited image for this portal-specific distribution.")       
 
     # Extendable JSON for future portal-specific fields
 
@@ -201,6 +202,7 @@ class NewsDistribution(BaseModel):
     response_message = models.TextField(null=True, blank=True)
     sent_at = models.DateTimeField(auto_now_add=True)
     retry_count = models.PositiveIntegerField(default=0)
+    edit_count = models.PositiveIntegerField(default=0)
     time_taken = models.FloatField(default=0.0, help_text="Time taken in seconds to publish on this portal")
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)

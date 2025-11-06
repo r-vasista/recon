@@ -909,6 +909,14 @@ class MasterNewsPostPublishAPIView(APIView):
                     response = requests.post(api_url, data=payload, files=files, timeout=90)
                     success = response.status_code in [200, 201]
                     response_msg = response.text
+                    # ✅ Extract portal news ID from JSON response
+                    portal_news_id = None
+                    try:
+                        resp_json = response.json()
+                        if isinstance(resp_json, dict) and resp_json.get("status") is True:
+                            portal_news_id = resp_json.get("data", {}).get("id")
+                    except Exception:
+                        portal_news_id = None
                 except Exception as e:
                     success = False
                     response_msg = str(e)
@@ -926,6 +934,7 @@ class MasterNewsPostPublishAPIView(APIView):
                 dist.time_taken = elapsed_time
                 dist.started_at = timezone.now() - timezone.timedelta(seconds=elapsed_time)
                 dist.completed_at = timezone.now()
+                dist.portal_news_id = str(portal_news_id) if portal_news_id else None
                 dist.save()
 
                 results.append({
@@ -2885,3 +2894,131 @@ class UserPerformanceAPIView(APIView):
                 raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
         else:
             return today - timedelta(days=7), today
+
+
+class NewsDistributionEditAPIView(APIView):
+    """
+    PUT /api/news-distribution/{id}/edit/
+    Updates distributed news both in Recon and the target portal.
+    Supports updating text fields and edited image.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, pk):
+        try:
+            distribution = get_object_or_404(NewsDistribution, pk=pk)
+
+            if not distribution.portal_news_id:
+                return Response(error_response("Missing portal_news_id. Cannot perform edit."), status=400)
+
+            portal = distribution.portal
+            portal_news_id = distribution.portal_news_id
+
+            # --- Update local AI fields ---
+            editable_fields = [
+                "ai_title", "ai_short_description", "ai_content", "ai_meta_title", "ai_slug"
+            ]
+            for field in editable_fields:
+                if field in request.data:
+                    setattr(distribution, field, request.data[field])
+
+            # --- Handle image update (optional) ---
+            if "edited_image" in request.FILES:
+                distribution.edited_image = request.FILES["edited_image"]
+
+            distribution.edit_count = getattr(distribution, "edit_count", 0) + 1
+            distribution.save()
+
+            # --- Prepare payload (Recon → Portal field map) ---
+            news_post = distribution.news_post
+            payload = {
+                "post_title": distribution.ai_title,
+                "meta_title": distribution.ai_meta_title,
+                "slug": distribution.ai_slug,
+                "post_short_des": distribution.ai_short_description,
+                "post_des": distribution.ai_content,
+                "post_tag": news_post.post_tag or "#latest",
+                "Event_date": (news_post.Event_date or timezone.now().date()).isoformat(),
+                "Eventend_date": (news_post.Event_end_date or timezone.now().date()).isoformat(),
+                "schedule_date": (news_post.schedule_date or timezone.now()).isoformat(),
+                "is_active": int(bool(news_post.latest_news)) if news_post.latest_news is not None else 0,
+                "Event": int(bool(news_post.upcoming_event)) if news_post.upcoming_event is not None else 0,
+                "Head_Lines": int(bool(news_post.Head_Lines)) if news_post.Head_Lines is not None else 0,
+                "articles": int(bool(news_post.articles)) if news_post.articles is not None else 0,
+                "trending": int(bool(news_post.trending)) if news_post.trending is not None else 0,
+                "BreakingNews": int(bool(news_post.BreakingNews)) if news_post.BreakingNews is not None else 0,
+                "post_status": news_post.counter or 0,
+            }
+
+            # --- Prepare image for upload (if edited) ---
+            files = {}
+            if distribution.edited_image:
+                files["post_image"] = open(distribution.edited_image.path, "rb")
+
+            # --- API call to portal ---
+            api_url = f"{portal.base_url}/api/update-news/{portal_news_id}/"
+            try:
+                response = requests.put(api_url, data=payload, files=files if files else None, timeout=60)
+                success = response.status_code in [200, 201]
+                resp_text = response.text
+            except Exception as e:
+                success = False
+                resp_text = str(e)
+
+            # --- Update distribution response ---
+            distribution.response_message = f"EDIT: {resp_text[:500]}"
+            distribution.completed_at = timezone.now()
+            distribution.status = "SUCCESS" if success else "FAILED"
+            distribution.save(update_fields=["response_message", "completed_at", "status"])
+
+            return Response(success_response({
+                "portal": portal.name,
+                "portal_news_id": portal_news_id,
+                "success": success,
+                "response": resp_text,
+            }, "NewsDistribution updated successfully."))
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+
+
+class NewsDistributionDeleteAPIView(APIView):
+    """
+    DELETE /api/news-distribution/{id}/delete/
+    Deletes the post from the target portal and removes its distribution entry.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        try:
+            distribution = get_object_or_404(NewsDistribution, pk=pk)
+            portal = distribution.portal
+            portal_news_id = distribution.portal_news_id
+
+            if not portal_news_id:
+                distribution.delete()
+                return Response(success_response({}, "Deleted locally (no portal ID found)."))
+
+            api_url = f"{portal.base_url}/api/delete-news/{portal_news_id}/"
+            try:
+                response = requests.delete(api_url, timeout=60)
+                success = response.status_code in [200, 204]
+                resp_text = response.text
+            except Exception as e:
+                success = False
+                resp_text = str(e)
+
+            if success:
+                distribution.delete()
+                return Response(success_response({
+                    "portal": portal.name,
+                    "portal_news_id": portal_news_id,
+                    "response": resp_text,
+                }, "Deleted successfully from portal and Recon."))
+            else:
+                return Response(error_response(f"Failed to delete from portal: {resp_text}"), status=400)
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
