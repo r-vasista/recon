@@ -422,30 +422,31 @@ class UnassignedUsersAPIView(APIView, PaginationMixin):
             )
 
 
-class UserDetailsListAPIView(APIView,PaginationMixin):
+class UserDetailsListAPIView(APIView, PaginationMixin):
     """
-    GET /api/users/role-users/
-    Lists all users with role=USER and their assigned portals + categories + total posts.
+    GET /api/users/
+    Lists all users (no role filter) with their assigned portals, categories, and total posts.
+    Supports optional search by username (?search=xyz).
     """
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         try:
-            user_role = Role.objects.filter(name="user").first()
-            if not user_role:
-                return Response(
-                    error_response("USER role not defined"),
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            search_query = request.query_params.get("search", "").strip()
 
-            users = User.objects.filter(role__role=user_role)
+            users = User.objects.all().order_by("-date_joined")
 
-            serializer = UserWithPortalsSerializer(users, many=True)
-            
+            if search_query:
+                users = users.filter(username__icontains=search_query)
+
             paginated_qs = self.paginate_queryset(users, request, view=self)
             serializer = UserWithPortalsSerializer(paginated_qs, many=True)
-            return self.get_paginated_response(serializer.data, message="User role users fetched successfully")
+
+            return self.get_paginated_response(
+                serializer.data,
+                message="Users fetched successfully"
+            )
 
         except Exception as e:
             return Response(
