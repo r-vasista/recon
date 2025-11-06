@@ -2714,6 +2714,10 @@ class UserPerformanceAPIView(APIView):
             # --- 1️⃣ Parse Date Range Filter ---
             range_type = request.query_params.get("range", "7d")
             start_date, end_date = self._get_date_range(range_type, request)
+            try:
+                user = User.objects.get(id=user_id)
+            except:
+                return Response(error_response('User not found'), status=status.HTTP_404_NOT_FOUND)
 
             # --- 2️⃣ Fetch Posts in Range ---
             posts = MasterNewsPost.objects.filter(
@@ -2823,6 +2827,7 @@ class UserPerformanceAPIView(APIView):
             # --- 7️⃣ Final Response ---
             response_data = {
                 "user_id": user_id,
+                "username":user.username,
                 "date_range": {
                     "start_date": str(start_date),
                     "end_date": str(end_date),
