@@ -2438,7 +2438,7 @@ class FailureReasonsStatsAPIView(APIView):
 
 class MasterCategoryHeatmapAPIView(APIView):
     """
-    GET /api/analytics/master-category-heatmap/?range=1d|7d|30d
+    GET /api/analytics/master-category-heatmap/?range=1d|7d|30d|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 
     Returns total postings per MasterCategory for the given range,
     compared with the previous same-length range.
@@ -2446,27 +2446,6 @@ class MasterCategoryHeatmapAPIView(APIView):
     Role-based:
     - MASTER: sees all data
     - USER: sees only their own posts
-
-    Example Response:
-    {
-        "success": true,
-        "data": {
-            "current_start": "2025-10-01",
-            "current_end": "2025-10-07",
-            "previous_start": "2025-09-24",
-            "previous_end": "2025-10-01",
-            "categories": [
-                {
-                    "master_category_id": 1,
-                    "master_category_name": "Politics",
-                    "current_period_posts": 120,
-                    "previous_period_posts": 100,
-                    "change_ratio": 20.0,
-                    "trend": "increase"
-                }
-            ]
-        }
-    }
     """
 
     permission_classes = [IsAuthenticated]
@@ -2483,15 +2462,46 @@ class MasterCategoryHeatmapAPIView(APIView):
             range_param = request.query_params.get("range", "7d").lower()
             now = timezone.now().date()
 
+            # --- Compute date ranges ---
             if range_param == "1d":
                 days = 1
+                current_start = now - timedelta(days=days)
+                current_end = now
+
             elif range_param == "30d":
                 days = 30
-            else:
-                days = 7  # default
+                current_start = now - timedelta(days=days)
+                current_end = now
 
-            current_start = now - timedelta(days=days)
-            current_end = now
+            elif range_param == "custom":
+                try:
+                    print('in custom')
+                    start_date = request.query_params.get("start_date")
+                    end_date = request.query_params.get("end_date")
+
+                    if not start_date or not end_date:
+                        return Response(
+                            {"success": False, "error": "Custom range requires start_date and end_date in YYYY-MM-DD format."},
+                            status=400
+                        )
+
+                    current_start = datetime.strptime(start_date, "%Y-%m-%d").date()
+                    current_end = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+                    days = (current_end - current_start).days or 1
+                except Exception:
+                    return Response(
+                        {"success": False, "error": "Invalid date format. Expected YYYY-MM-DD."},
+                        status=400
+                    )
+
+            else:
+                # Default: 7 days
+                days = 7
+                current_start = now - timedelta(days=days)
+                current_end = now
+
+            # Previous period range
             previous_start = current_start - timedelta(days=days)
             previous_end = current_start
 
@@ -2522,7 +2532,7 @@ class MasterCategoryHeatmapAPIView(APIView):
                 cat_id = item["master_category__id"]
                 cat_name = item["master_category__name"]
 
-                # Skip categories that are still null (extra safeguard)
+                # Skip null categories just in case
                 if not cat_id or not cat_name:
                     continue
 
@@ -2545,6 +2555,7 @@ class MasterCategoryHeatmapAPIView(APIView):
                     "trend": trend,
                 })
 
+            # --- Final response ---
             return Response({
                 "success": True,
                 "data": {
@@ -2558,7 +2569,7 @@ class MasterCategoryHeatmapAPIView(APIView):
 
         except Exception as e:
             return Response({"success": False, "error": str(e)}, status=500)
-        
+   
 
 class UserPostStatsAPIView(APIView, PaginationMixin):
     """
