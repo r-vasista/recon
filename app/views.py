@@ -2704,18 +2704,16 @@ class UserPostStatsAPIView(APIView, PaginationMixin):
 
 class UserPerformanceAPIView(APIView):
     """
-    GET /api/user-performance/<user_id>/?range=7days
+    GET /api/user-performance/<user_id>/?range=7d
     Returns analytics summary for a given user's activity and performance.
-    Supports range filters: today, yesterday, 7days, 1month, custom (start_date, end_date)
+    Includes timeline with created, distributed, success, failed counts.
     """
 
     def get(self, request, user_id):
         try:
             # --- 1️⃣ Parse Date Range Filter ---
-            range_type = request.query_params.get("range", "7days")
+            range_type = request.query_params.get("range", "7d")
             start_date, end_date = self._get_date_range(range_type, request)
-
-            logger.info(f"📊 Fetching user performance for user_id={user_id} | Range={range_type} | {start_date} → {end_date}")
 
             # --- 2️⃣ Fetch Posts in Range ---
             posts = MasterNewsPost.objects.filter(
@@ -2726,7 +2724,7 @@ class UserPerformanceAPIView(APIView):
             if not posts.exists():
                 return Response(success_response({}, "No data found for this user in the selected range."), status=200)
 
-            # --- 3️⃣ Calculate Metrics ---
+            # --- 3️⃣ Base Metrics ---
             total_created = posts.count()
             total_published = posts.filter(status="PUBLISHED").count()
 
@@ -2743,18 +2741,55 @@ class UserPerformanceAPIView(APIView):
                 (total_success / (total_success + total_failed)) * 100, 2
             ) if (total_success + total_failed) > 0 else 0.0
 
-            # --- 4️⃣ Timeline of Actions (Daily) ---
-            timeline_data = (
+            # --- 4️⃣ Timeline: combine post creation + distributions ---
+            from django.db.models import Q
+
+            # Created posts per day
+            created_timeline = (
                 posts.annotate(date=TruncDate("created_at"))
                 .values("date")
                 .annotate(created_count=Count("id"))
-                .order_by("date")
             )
 
-            timeline = [
-                {"date": str(entry["date"]), "created_count": entry["created_count"]}
-                for entry in timeline_data
-            ]
+            # Distributions per day
+            dist_timeline = (
+                distributions.annotate(date=TruncDate("completed_at"))
+                .values("date")
+                .annotate(
+                    distributed_count=Count("id"),
+                    success_count=Count("id", filter=Q(status="SUCCESS")),
+                    failed_count=Count("id", filter=Q(status="FAILED")),
+                )
+            )
+
+            # Merge the two timelines
+            timeline_dict = {}
+            for entry in created_timeline:
+                date_str = str(entry["date"])
+                timeline_dict[date_str] = {
+                    "date": date_str,
+                    "created_count": entry["created_count"],
+                    "distributed_count": 0,
+                    "success_count": 0,
+                    "failed_count": 0,
+                }
+
+            for entry in dist_timeline:
+                date_str = str(entry["date"])
+                if date_str not in timeline_dict:
+                    timeline_dict[date_str] = {
+                        "date": date_str,
+                        "created_count": 0,
+                        "distributed_count": 0,
+                        "success_count": 0,
+                        "failed_count": 0,
+                    }
+                timeline_dict[date_str]["distributed_count"] += entry["distributed_count"]
+                timeline_dict[date_str]["success_count"] += entry["success_count"]
+                timeline_dict[date_str]["failed_count"] += entry["failed_count"]
+
+            # Sort timeline chronologically
+            timeline = sorted(timeline_dict.values(), key=lambda x: x["date"])
 
             # --- 5️⃣ Average Time to Publish ---
             publish_durations = []
@@ -2785,7 +2820,7 @@ class UserPerformanceAPIView(APIView):
             else:
                 active_window = "No active hours recorded"
 
-            # --- 7️⃣ Prepare Response ---
+            # --- 7️⃣ Final Response ---
             response_data = {
                 "user_id": user_id,
                 "date_range": {
@@ -2797,8 +2832,8 @@ class UserPerformanceAPIView(APIView):
                     "created": total_created,
                     "published": total_published,
                     "distributed": total_distributed,
-                    "total_success":total_success,
-                    "total_failed":total_failed,
+                    "total_success": total_success,
+                    "total_failed": total_failed,
                 },
                 "success_rate": success_rate,
                 "average_time_to_publish_hours": avg_time_to_publish,
@@ -2809,7 +2844,6 @@ class UserPerformanceAPIView(APIView):
             return Response(success_response(response_data, "User performance stats retrieved."))
 
         except Exception as e:
-            logger.exception("❌ Error fetching user performance: %s", str(e))
             return Response(error_response(str(e)), status=500)
 
     # Helper function to compute date range
@@ -2819,17 +2853,13 @@ class UserPerformanceAPIView(APIView):
 
         if range_type == "today":
             return today, today
-
         elif range_type == "yesterday":
             y = today - timedelta(days=1)
             return y, y
-
-        elif range_type == "7days":
+        elif range_type == "7d":
             return today - timedelta(days=7), today
-
-        elif range_type == "1month":
+        elif range_type == "1m":
             return today - timedelta(days=30), today
-
         elif range_type == "custom":
             try:
                 start_date = datetime.strptime(request.query_params.get("start_date"), "%Y-%m-%d").date()
@@ -2837,8 +2867,5 @@ class UserPerformanceAPIView(APIView):
                 return start_date, end_date
             except Exception:
                 raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
-
         else:
-            # Default to last 7 days
             return today - timedelta(days=7), today
-    
