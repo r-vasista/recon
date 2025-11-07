@@ -3022,3 +3022,192 @@ class NewsDistributionDeleteAPIView(APIView):
 
         except Exception as e:
             return Response(error_response(str(e)), status=500)
+
+
+class CategoryStatsAPIView(APIView):
+    """
+    GET /api/category-stats/<category_id>/?type=master|portal&range=7d
+    Returns insights for a given category or subcategory.
+    KPIs:
+      - Output Trend (total vs success posts)
+      - Top Portals
+      - Top Authors
+      - Inactivity Windows
+    Supports: today, yesterday, 7d, 1m, custom(start_date, end_date)
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, category_id):
+        try:
+            category_type = request.query_params.get("type", "master")  # master | portal
+            range_type = request.query_params.get("range", "today")
+            start_date, end_date = self._get_date_range(range_type, request)
+
+            # --- 🔹 Fetch category name ---
+            if category_type == "portal":
+                category_obj = PortalCategory.objects.filter(id=category_id).first()
+            else:
+                category_obj = MasterCategory.objects.filter(id=category_id).first()
+
+            category_name = category_obj.name if category_obj else "Unknown Category"
+
+            # --- 1️⃣ Filter Base Queryset ---
+            if category_type == "portal":
+                qs = NewsDistribution.objects.filter(
+                    portal_category_id=category_id,
+                    completed_at__date__range=[start_date, end_date]
+                )
+            else:  # master category
+                qs = NewsDistribution.objects.filter(
+                    master_category_id=category_id,
+                    completed_at__date__range=[start_date, end_date]
+                )
+
+            if not qs.exists():
+                return Response(
+                    success_response({
+                        "category_id": category_id,
+                        "category_name": category_name,
+                        "category_type": category_type,
+                        "date_range": {
+                            "start_date": str(start_date),
+                            "end_date": str(end_date),
+                            "filter": range_type,
+                        },
+                        "output_trend": [],
+                        "top_portals": [],
+                        "top_authors": [],
+                        "inactivity_windows": [],
+                    }, "No data found for this category."),
+                    status=200
+                )
+
+            # --- 2️⃣ Output Trend (daily) ---
+            trend_data = (
+                qs.annotate(date=TruncDate("completed_at"))
+                .values("date")
+                .annotate(
+                    total_posts=Count("id"),
+                    success_posts=Count("id", filter=Q(status="SUCCESS"))
+                )
+                .order_by("date")
+            )
+            output_trend = [
+                {
+                    "date": str(d["date"]),
+                    "total_posts": d["total_posts"],
+                    "success_posts": d["success_posts"],
+                }
+                for d in trend_data
+            ]
+
+            # --- 3️⃣ Top Portals ---
+            top_portals = (
+                qs.filter(status="SUCCESS")
+                .values("portal__name")
+                .annotate(total=Count("id"))
+                .order_by("-total")[:5]
+            )
+            portals_data = [
+                {"portal": p["portal__name"], "count": p["total"]}
+                for p in top_portals
+            ]
+
+            # --- 4️⃣ Top Authors ---
+            top_authors = (
+                qs.filter(status="SUCCESS")
+                .values("news_post__created_by__username")
+                .annotate(total=Count("id"))
+                .order_by("-total")[:5]
+            )
+            authors_data = [
+                {"username": a["news_post__created_by__username"], "count": a["total"]}
+                for a in top_authors
+            ]
+
+            # --- 5️⃣ Inactivity Windows ---
+            published_dates = set(
+                qs.filter(status="SUCCESS").values_list("completed_at__date", flat=True)
+            )
+            inactivity_periods = self._calculate_inactivity(published_dates, start_date, end_date)
+
+            # --- 6️⃣ Final Response ---
+            response_data = {
+                "category_id": category_id,
+                "category_name": category_name,
+                "category_type": category_type,
+                "date_range": {
+                    "start_date": str(start_date),
+                    "end_date": str(end_date),
+                    "filter": range_type,
+                },
+                "output_trend": output_trend,
+                "top_portals": portals_data,
+                "top_authors": authors_data,
+                "inactivity_windows": inactivity_periods,
+            }
+
+            return Response(success_response(response_data, "Category stats retrieved successfully."))
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+
+    # Helper for inactivity detection
+    def _calculate_inactivity(self, published_dates, start_date, end_date):
+        """
+        Detects inactivity gaps (≥24h) between posts.
+        Returns: [{'start': '2025-10-03', 'end': '2025-10-05', 'duration_days': 2}]
+        """
+        if not published_dates:
+            return [{
+                "start": str(start_date),
+                "end": str(end_date),
+                "duration_days": (end_date - start_date).days
+            }]
+
+        sorted_dates = sorted(published_dates)
+        inactivity = []
+        prev_date = start_date
+
+        for d in sorted_dates:
+            gap = (d - prev_date).days
+            if gap > 1:
+                inactivity.append({
+                    "start": str(prev_date + timedelta(days=1)),
+                    "end": str(d - timedelta(days=1)),
+                    "duration_days": gap - 1
+                })
+            prev_date = d
+
+        if (end_date - prev_date).days >= 2:
+            inactivity.append({
+                "start": str(prev_date + timedelta(days=1)),
+                "end": str(end_date),
+                "duration_days": (end_date - prev_date).days
+            })
+        return inactivity
+
+    # Helper for date range filters
+    def _get_date_range(self, range_type, request):
+        now = timezone.localtime()
+        today = now.date()
+
+        if range_type == "today":
+            return today, today
+        elif range_type == "yesterday":
+            y = today - timedelta(days=1)
+            return y, y
+        elif range_type == "7d":
+            return today - timedelta(days=7), today
+        elif range_type == "1m":
+            return today - timedelta(days=30), today
+        elif range_type == "custom":
+            try:
+                start_date = datetime.strptime(request.query_params.get("start_date"), "%Y-%m-%d").date()
+                end_date = datetime.strptime(request.query_params.get("end_date"), "%Y-%m-%d").date()
+                return start_date, end_date
+            except Exception:
+                raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
+        else:
+            return today - timedelta(days=7), today

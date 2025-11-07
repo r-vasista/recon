@@ -7,7 +7,8 @@ from .views import (
     NewsDistributionDetailAPIView, AdminStatsAPIView, DomainDistributionStatsAPIView, AllPortalsTagsLiveAPIView, 
     NewsPostUpdateAPIView, MyPostsListAPIView, NewsReportAPIView, NewsKPIAPIView, PortalStatsAPIView, GlobalStatsAPIView,
     InactivityAlertsAPIView, NewsDistributionRateOverTimeAPIView, FailureReasonsStatsAPIView, MasterCategoryHeatmapAPIView,
-    UserPostStatsAPIView, UserPerformanceAPIView, NewsDistributionEditAPIView, NewsDistributionDeleteAPIView
+    UserPostStatsAPIView, UserPerformanceAPIView, NewsDistributionEditAPIView, NewsDistributionDeleteAPIView, 
+    CategoryStatsAPIView
 )
 
 urlpatterns = [
@@ -59,4 +60,5 @@ urlpatterns = [
     path('category/heatmap/', MasterCategoryHeatmapAPIView.as_view()),
     path('user/posts/stats/', UserPostStatsAPIView.as_view()),
     path('user/performance/<int:user_id>/', UserPerformanceAPIView.as_view()),
+    path('category/stats/<int:category_id>/', CategoryStatsAPIView.as_view()),
 ]
