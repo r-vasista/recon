@@ -2,11 +2,12 @@ import requests
 import json
 import time
 import logging
-from collections import defaultdict
+from statistics import mean
+from collections import defaultdict, Counter
 from django.utils import timezone
 from django.utils.timezone import now
-from django.db.models.functions import Coalesce
-from datetime import date
+from django.db.models.functions import Coalesce, ExtractHour, TruncDate
+from datetime import date, datetime
 from urllib.parse import urljoin
 from datetime import timedelta
 from types import SimpleNamespace
@@ -908,6 +909,14 @@ class MasterNewsPostPublishAPIView(APIView):
                     response = requests.post(api_url, data=payload, files=files, timeout=90)
                     success = response.status_code in [200, 201]
                     response_msg = response.text
+                    # ✅ Extract portal news ID from JSON response
+                    portal_news_id = None
+                    try:
+                        resp_json = response.json()
+                        if isinstance(resp_json, dict) and resp_json.get("status") is True:
+                            portal_news_id = resp_json.get("data", {}).get("id")
+                    except Exception:
+                        portal_news_id = None
                 except Exception as e:
                     success = False
                     response_msg = str(e)
@@ -925,6 +934,7 @@ class MasterNewsPostPublishAPIView(APIView):
                 dist.time_taken = elapsed_time
                 dist.started_at = timezone.now() - timezone.timedelta(seconds=elapsed_time)
                 dist.completed_at = timezone.now()
+                dist.portal_news_id = str(portal_news_id) if portal_news_id else None
                 dist.save()
 
                 results.append({
@@ -2437,7 +2447,7 @@ class FailureReasonsStatsAPIView(APIView):
 
 class MasterCategoryHeatmapAPIView(APIView):
     """
-    GET /api/analytics/master-category-heatmap/?range=1d|7d|30d
+    GET /api/analytics/master-category-heatmap/?range=1d|7d|30d|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 
     Returns total postings per MasterCategory for the given range,
     compared with the previous same-length range.
@@ -2445,27 +2455,6 @@ class MasterCategoryHeatmapAPIView(APIView):
     Role-based:
     - MASTER: sees all data
     - USER: sees only their own posts
-
-    Example Response:
-    {
-        "success": true,
-        "data": {
-            "current_start": "2025-10-01",
-            "current_end": "2025-10-07",
-            "previous_start": "2025-09-24",
-            "previous_end": "2025-10-01",
-            "categories": [
-                {
-                    "master_category_id": 1,
-                    "master_category_name": "Politics",
-                    "current_period_posts": 120,
-                    "previous_period_posts": 100,
-                    "change_ratio": 20.0,
-                    "trend": "increase"
-                }
-            ]
-        }
-    }
     """
 
     permission_classes = [IsAuthenticated]
@@ -2482,15 +2471,46 @@ class MasterCategoryHeatmapAPIView(APIView):
             range_param = request.query_params.get("range", "7d").lower()
             now = timezone.now().date()
 
+            # --- Compute date ranges ---
             if range_param == "1d":
                 days = 1
+                current_start = now - timedelta(days=days)
+                current_end = now
+
             elif range_param == "30d":
                 days = 30
-            else:
-                days = 7  # default
+                current_start = now - timedelta(days=days)
+                current_end = now
 
-            current_start = now - timedelta(days=days)
-            current_end = now
+            elif range_param == "custom":
+                try:
+                    print('in custom')
+                    start_date = request.query_params.get("start_date")
+                    end_date = request.query_params.get("end_date")
+
+                    if not start_date or not end_date:
+                        return Response(
+                            {"success": False, "error": "Custom range requires start_date and end_date in YYYY-MM-DD format."},
+                            status=400
+                        )
+
+                    current_start = datetime.strptime(start_date, "%Y-%m-%d").date()
+                    current_end = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+                    days = (current_end - current_start).days or 1
+                except Exception:
+                    return Response(
+                        {"success": False, "error": "Invalid date format. Expected YYYY-MM-DD."},
+                        status=400
+                    )
+
+            else:
+                # Default: 7 days
+                days = 7
+                current_start = now - timedelta(days=days)
+                current_end = now
+
+            # Previous period range
             previous_start = current_start - timedelta(days=days)
             previous_end = current_start
 
@@ -2521,7 +2541,7 @@ class MasterCategoryHeatmapAPIView(APIView):
                 cat_id = item["master_category__id"]
                 cat_name = item["master_category__name"]
 
-                # Skip categories that are still null (extra safeguard)
+                # Skip null categories just in case
                 if not cat_id or not cat_name:
                     continue
 
@@ -2544,6 +2564,7 @@ class MasterCategoryHeatmapAPIView(APIView):
                     "trend": trend,
                 })
 
+            # --- Final response ---
             return Response({
                 "success": True,
                 "data": {
@@ -2557,7 +2578,7 @@ class MasterCategoryHeatmapAPIView(APIView):
 
         except Exception as e:
             return Response({"success": False, "error": str(e)}, status=500)
-        
+   
 
 class UserPostStatsAPIView(APIView, PaginationMixin):
     """
@@ -2699,3 +2720,494 @@ class UserPostStatsAPIView(APIView, PaginationMixin):
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class UserPerformanceAPIView(APIView):
+    """
+    GET /api/user-performance/<user_id>/?range=7d
+    Returns analytics summary for a given user's activity and performance.
+    Includes timeline with created, distributed, success, failed counts.
+    """
+
+    def get(self, request, user_id):
+        try:
+            # --- 1️⃣ Parse Date Range Filter ---
+            range_type = request.query_params.get("range", "7d")
+            start_date, end_date = self._get_date_range(range_type, request)
+            try:
+                user = User.objects.get(id=user_id)
+            except:
+                return Response(error_response('User not found'), status=status.HTTP_404_NOT_FOUND)
+
+            # --- 2️⃣ Fetch Posts in Range ---
+            posts = MasterNewsPost.objects.filter(
+                created_by_id=user_id,
+                created_at__date__range=[start_date, end_date]
+            )
+
+            if not posts.exists():
+                return Response(success_response({}, "No data found for this user in the selected range."), status=200)
+
+            # --- 3️⃣ Base Metrics ---
+            total_created = posts.count()
+            total_published = posts.filter(status="PUBLISHED").count()
+
+            distributions = NewsDistribution.objects.filter(
+                news_post__in=posts,
+                completed_at__date__range=[start_date, end_date]
+            )
+
+            total_success = distributions.filter(status="SUCCESS").count()
+            total_failed = distributions.filter(status="FAILED").count()
+            total_distributed = distributions.count()
+
+            success_rate = round(
+                (total_success / (total_success + total_failed)) * 100, 2
+            ) if (total_success + total_failed) > 0 else 0.0
+
+            # --- 4️⃣ Timeline: combine post creation + distributions ---
+            from django.db.models import Q
+
+            # Created posts per day
+            created_timeline = (
+                posts.annotate(date=TruncDate("created_at"))
+                .values("date")
+                .annotate(created_count=Count("id"))
+            )
+
+            # Distributions per day
+            dist_timeline = (
+                distributions.annotate(date=TruncDate("completed_at"))
+                .values("date")
+                .annotate(
+                    distributed_count=Count("id"),
+                    success_count=Count("id", filter=Q(status="SUCCESS")),
+                    failed_count=Count("id", filter=Q(status="FAILED")),
+                )
+            )
+
+            # Merge the two timelines
+            timeline_dict = {}
+            for entry in created_timeline:
+                date_str = str(entry["date"])
+                timeline_dict[date_str] = {
+                    "date": date_str,
+                    "created_count": entry["created_count"],
+                    "distributed_count": 0,
+                    "success_count": 0,
+                    "failed_count": 0,
+                }
+
+            for entry in dist_timeline:
+                date_str = str(entry["date"])
+                if date_str not in timeline_dict:
+                    timeline_dict[date_str] = {
+                        "date": date_str,
+                        "created_count": 0,
+                        "distributed_count": 0,
+                        "success_count": 0,
+                        "failed_count": 0,
+                    }
+                timeline_dict[date_str]["distributed_count"] += entry["distributed_count"]
+                timeline_dict[date_str]["success_count"] += entry["success_count"]
+                timeline_dict[date_str]["failed_count"] += entry["failed_count"]
+
+            # Sort timeline chronologically
+            timeline = sorted(timeline_dict.values(), key=lambda x: x["date"])
+
+            # --- 5️⃣ Average Time to Publish ---
+            publish_durations = []
+            for post in posts:
+                first_success = (
+                    NewsDistribution.objects.filter(
+                        news_post=post,
+                        status="SUCCESS",
+                        completed_at__isnull=False,
+                        completed_at__date__range=[start_date, end_date],
+                    )
+                    .order_by("completed_at")
+                    .first()
+                )
+                if first_success:
+                    delta = first_success.completed_at - post.created_at
+                    publish_durations.append(delta.total_seconds() / 3600)  # hours
+
+            avg_time_to_publish = round(mean(publish_durations), 2) if publish_durations else 0.0
+
+            # --- 6️⃣ Active Time Window ---
+            hours = posts.annotate(hour=ExtractHour("created_at")).values_list("hour", flat=True)
+            if hours:
+                hour_counts = Counter(hours)
+                active_start = min(hour_counts.keys())
+                active_end = max(hour_counts.keys())
+                active_window = f"{active_start}:00 - {active_end}:00"
+            else:
+                active_window = "No active hours recorded"
+
+            # --- 7️⃣ Final Response ---
+            response_data = {
+                "user_id": user_id,
+                "username":user.username,
+                "date_range": {
+                    "start_date": str(start_date),
+                    "end_date": str(end_date),
+                    "filter": range_type,
+                },
+                "total_output": {
+                    "created": total_created,
+                    "published": total_published,
+                    "distributed": total_distributed,
+                    "total_success": total_success,
+                    "total_failed": total_failed,
+                },
+                "success_rate": success_rate,
+                "average_time_to_publish_hours": avg_time_to_publish,
+                "active_time_window": active_window,
+                "timeline_of_actions": timeline,
+            }
+
+            return Response(success_response(response_data, "User performance stats retrieved."))
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+
+    # Helper function to compute date range
+    def _get_date_range(self, range_type, request):
+        now = timezone.localtime()
+        today = now.date()
+
+        if range_type == "today":
+            return today, today
+        elif range_type == "yesterday":
+            y = today - timedelta(days=1)
+            return y, y
+        elif range_type == "7d":
+            return today - timedelta(days=7), today
+        elif range_type == "1m":
+            return today - timedelta(days=30), today
+        elif range_type == "custom":
+            try:
+                start_date = datetime.strptime(request.query_params.get("start_date"), "%Y-%m-%d").date()
+                end_date = datetime.strptime(request.query_params.get("end_date"), "%Y-%m-%d").date()
+                return start_date, end_date
+            except Exception:
+                raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
+        else:
+            return today - timedelta(days=7), today
+
+
+class NewsDistributionEditAPIView(APIView):
+    """
+    PUT /api/news-distribution/{id}/edit/
+    Updates distributed news both in Recon and the target portal.
+    Supports updating text fields and edited image.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, pk):
+        try:
+            distribution = get_object_or_404(NewsDistribution, pk=pk)
+
+            if not distribution.portal_news_id:
+                return Response(error_response("Missing portal_news_id. Cannot perform edit."), status=400)
+
+            portal = distribution.portal
+            portal_news_id = distribution.portal_news_id
+
+            # --- Update local AI fields ---
+            editable_fields = [
+                "ai_title", "ai_short_description", "ai_content", "ai_meta_title", "ai_slug"
+            ]
+            for field in editable_fields:
+                if field in request.data:
+                    setattr(distribution, field, request.data[field])
+
+            # --- Handle image update (optional) ---
+            if "edited_image" in request.FILES:
+                distribution.edited_image = request.FILES["edited_image"]
+
+            distribution.edit_count = getattr(distribution, "edit_count", 0) + 1
+            distribution.save()
+
+            # --- Prepare payload (Recon → Portal field map) ---
+            news_post = distribution.news_post
+            payload = {
+                "post_title": distribution.ai_title,
+                "meta_title": distribution.ai_meta_title,
+                "slug": distribution.ai_slug,
+                "post_short_des": distribution.ai_short_description,
+                "post_des": distribution.ai_content,
+                "post_tag": news_post.post_tag or "#latest",
+                "Event_date": (news_post.Event_date or timezone.now().date()).isoformat(),
+                "Eventend_date": (news_post.Event_end_date or timezone.now().date()).isoformat(),
+                "schedule_date": (news_post.schedule_date or timezone.now()).isoformat(),
+                "is_active": int(bool(news_post.latest_news)) if news_post.latest_news is not None else 0,
+                "Event": int(bool(news_post.upcoming_event)) if news_post.upcoming_event is not None else 0,
+                "Head_Lines": int(bool(news_post.Head_Lines)) if news_post.Head_Lines is not None else 0,
+                "articles": int(bool(news_post.articles)) if news_post.articles is not None else 0,
+                "trending": int(bool(news_post.trending)) if news_post.trending is not None else 0,
+                "BreakingNews": int(bool(news_post.BreakingNews)) if news_post.BreakingNews is not None else 0,
+                "post_status": news_post.counter or 0,
+            }
+
+            # --- Prepare image for upload (if edited) ---
+            files = {}
+            if distribution.edited_image:
+                files["post_image"] = open(distribution.edited_image.path, "rb")
+
+            # --- API call to portal ---
+            api_url = f"{portal.base_url}/api/update-news/{portal_news_id}/"
+            try:
+                response = requests.put(api_url, data=payload, files=files if files else None, timeout=60)
+                success = response.status_code in [200, 201]
+                resp_text = response.text
+            except Exception as e:
+                success = False
+                resp_text = str(e)
+
+            # --- Update distribution response ---
+            distribution.response_message = f"EDIT: {resp_text[:500]}"
+            distribution.completed_at = timezone.now()
+            distribution.status = "SUCCESS" if success else "FAILED"
+            distribution.save(update_fields=["response_message", "completed_at", "status"])
+
+            return Response(success_response({
+                "portal": portal.name,
+                "portal_news_id": portal_news_id,
+                "success": success,
+                "response": resp_text,
+            }, "NewsDistribution updated successfully."))
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+
+
+class NewsDistributionDeleteAPIView(APIView):
+    """
+    DELETE /api/news-distribution/{id}/delete/
+    Deletes the post from the target portal and removes its distribution entry.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        try:
+            distribution = get_object_or_404(NewsDistribution, pk=pk)
+            portal = distribution.portal
+            portal_news_id = distribution.portal_news_id
+
+            if not portal_news_id:
+                distribution.delete()
+                return Response(success_response({}, "Deleted locally (no portal ID found)."))
+
+            api_url = f"{portal.base_url}/api/delete-news/{portal_news_id}/"
+            try:
+                response = requests.delete(api_url, timeout=60)
+                success = response.status_code in [200, 204]
+                resp_text = response.text
+            except Exception as e:
+                success = False
+                resp_text = str(e)
+
+            if success:
+                distribution.delete()
+                return Response(success_response({
+                    "portal": portal.name,
+                    "portal_news_id": portal_news_id,
+                    "response": resp_text,
+                }, "Deleted successfully from portal and Recon."))
+            else:
+                return Response(error_response(f"Failed to delete from portal: {resp_text}"), status=400)
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+
+
+class CategoryStatsAPIView(APIView):
+    """
+    GET /api/category-stats/<category_id>/?type=master|portal&range=7d
+    Returns insights for a given category or subcategory.
+    KPIs:
+      - Output Trend (total vs success posts)
+      - Top Portals
+      - Top Authors
+      - Inactivity Windows
+    Supports: today, yesterday, 7d, 1m, custom(start_date, end_date)
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, category_id):
+        try:
+            category_type = request.query_params.get("type", "master")  # master | portal
+            range_type = request.query_params.get("range", "today")
+            start_date, end_date = self._get_date_range(range_type, request)
+
+            # --- 🔹 Fetch category name ---
+            if category_type == "portal":
+                category_obj = PortalCategory.objects.filter(id=category_id).first()
+            else:
+                category_obj = MasterCategory.objects.filter(id=category_id).first()
+
+            category_name = category_obj.name if category_obj else "Unknown Category"
+
+            # --- 1️⃣ Filter Base Queryset ---
+            if category_type == "portal":
+                qs = NewsDistribution.objects.filter(
+                    portal_category_id=category_id,
+                    completed_at__date__range=[start_date, end_date]
+                )
+            else:  # master category
+                qs = NewsDistribution.objects.filter(
+                    master_category_id=category_id,
+                    completed_at__date__range=[start_date, end_date]
+                )
+
+            if not qs.exists():
+                return Response(
+                    success_response({
+                        "category_id": category_id,
+                        "category_name": category_name,
+                        "category_type": category_type,
+                        "date_range": {
+                            "start_date": str(start_date),
+                            "end_date": str(end_date),
+                            "filter": range_type,
+                        },
+                        "output_trend": [],
+                        "top_portals": [],
+                        "top_authors": [],
+                        "inactivity_windows": [],
+                    }, "No data found for this category."),
+                    status=200
+                )
+
+            # --- 2️⃣ Output Trend (daily) ---
+            trend_data = (
+                qs.annotate(date=TruncDate("completed_at"))
+                .values("date")
+                .annotate(
+                    total_posts=Count("id"),
+                    success_posts=Count("id", filter=Q(status="SUCCESS"))
+                )
+                .order_by("date")
+            )
+            output_trend = [
+                {
+                    "date": str(d["date"]),
+                    "total_posts": d["total_posts"],
+                    "success_posts": d["success_posts"],
+                }
+                for d in trend_data
+            ]
+
+            # --- 3️⃣ Top Portals ---
+            top_portals = (
+                qs.filter(status="SUCCESS")
+                .values("portal__name")
+                .annotate(total=Count("id"))
+                .order_by("-total")[:5]
+            )
+            portals_data = [
+                {"portal": p["portal__name"], "count": p["total"]}
+                for p in top_portals
+            ]
+
+            # --- 4️⃣ Top Authors ---
+            top_authors = (
+                qs.filter(status="SUCCESS")
+                .values("news_post__created_by__username")
+                .annotate(total=Count("id"))
+                .order_by("-total")[:5]
+            )
+            authors_data = [
+                {"username": a["news_post__created_by__username"], "count": a["total"]}
+                for a in top_authors
+            ]
+
+            # --- 5️⃣ Inactivity Windows ---
+            published_dates = set(
+                qs.filter(status="SUCCESS").values_list("completed_at__date", flat=True)
+            )
+            inactivity_periods = self._calculate_inactivity(published_dates, start_date, end_date)
+
+            # --- 6️⃣ Final Response ---
+            response_data = {
+                "category_id": category_id,
+                "category_name": category_name,
+                "category_type": category_type,
+                "date_range": {
+                    "start_date": str(start_date),
+                    "end_date": str(end_date),
+                    "filter": range_type,
+                },
+                "output_trend": output_trend,
+                "top_portals": portals_data,
+                "top_authors": authors_data,
+                "inactivity_windows": inactivity_periods,
+            }
+
+            return Response(success_response(response_data, "Category stats retrieved successfully."))
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+
+    # Helper for inactivity detection
+    def _calculate_inactivity(self, published_dates, start_date, end_date):
+        """
+        Detects inactivity gaps (≥24h) between posts.
+        Returns: [{'start': '2025-10-03', 'end': '2025-10-05', 'duration_days': 2}]
+        """
+        if not published_dates:
+            return [{
+                "start": str(start_date),
+                "end": str(end_date),
+                "duration_days": (end_date - start_date).days
+            }]
+
+        sorted_dates = sorted(published_dates)
+        inactivity = []
+        prev_date = start_date
+
+        for d in sorted_dates:
+            gap = (d - prev_date).days
+            if gap > 1:
+                inactivity.append({
+                    "start": str(prev_date + timedelta(days=1)),
+                    "end": str(d - timedelta(days=1)),
+                    "duration_days": gap - 1
+                })
+            prev_date = d
+
+        if (end_date - prev_date).days >= 2:
+            inactivity.append({
+                "start": str(prev_date + timedelta(days=1)),
+                "end": str(end_date),
+                "duration_days": (end_date - prev_date).days
+            })
+        return inactivity
+
+    # Helper for date range filters
+    def _get_date_range(self, range_type, request):
+        now = timezone.localtime()
+        today = now.date()
+
+        if range_type == "today":
+            return today, today
+        elif range_type == "yesterday":
+            y = today - timedelta(days=1)
+            return y, y
+        elif range_type == "7d":
+            return today - timedelta(days=7), today
+        elif range_type == "1m":
+            return today - timedelta(days=30), today
+        elif range_type == "custom":
+            try:
+                start_date = datetime.strptime(request.query_params.get("start_date"), "%Y-%m-%d").date()
+                end_date = datetime.strptime(request.query_params.get("end_date"), "%Y-%m-%d").date()
+                return start_date, end_date
+            except Exception:
+                raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
+        else:
+            return today - timedelta(days=7), today
