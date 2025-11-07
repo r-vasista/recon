@@ -58,7 +58,7 @@ def generate_variation_with_gpt(title, short_desc, desc, prompt_text, meta_title
 
     try:
         response = client.responses.create(
-            model="gpt-5-mini",
+            model="gpt-4o-mini",
             input=[
                 {"role": "developer", "content": prompt_text},
                 {"role": "user", "content": user_content}
