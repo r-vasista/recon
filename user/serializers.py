@@ -148,10 +148,11 @@ class PortalWithPostsSerializer(serializers.ModelSerializer):
     categories = serializers.SerializerMethodField()
     total_posts = serializers.SerializerMethodField()
     todays_posts = serializers.SerializerMethodField()
+    todays_success_posts = serializers.SerializerMethodField()
 
     class Meta:
         model = Portal
-        fields = ["id", "name", "categories", "total_posts", "todays_posts"]
+        fields = ["id", "name", "categories", "total_posts", "todays_posts", "todays_success_posts"]
 
     def get_categories(self, portal):
         user = self.context.get("user")
@@ -196,6 +197,22 @@ class PortalWithPostsSerializer(serializers.ModelSerializer):
             portal=portal,
             news_post__created_by=user,
             sent_at__date=today
+        ).count()
+    
+    def get_todays_success_posts(self, portal):
+        """
+        Returns the count of successfully distributed posts today by this user for the given portal.
+        """
+        user = self.context.get("user")
+        if not user:
+            return 0
+
+        today = timezone.now().date()
+        return NewsDistribution.objects.filter(
+            portal=portal,
+            news_post__created_by=user,
+            sent_at__date=today,
+            status="SUCCESS"
         ).count()
 
 
