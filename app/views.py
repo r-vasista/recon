@@ -904,19 +904,21 @@ class MasterNewsPostPublishAPIView(APIView):
                 files = {"post_image": open(news_post.post_image.path, "rb")} if news_post.post_image else {}
 
                 # 9. Call portal API
+                portal_news_id = None  
                 try:
                     api_url = f"{portal.base_url}/api/create-news/"
                     response = requests.post(api_url, data=payload, files=files, timeout=90)
                     success = response.status_code in [200, 201]
                     response_msg = response.text
-                    # ✅ Extract portal news ID from JSON response
-                    portal_news_id = None
+
+                    # Extract portal news ID if response is valid JSON
                     try:
                         resp_json = response.json()
                         if isinstance(resp_json, dict) and resp_json.get("status") is True:
                             portal_news_id = resp_json.get("data", {}).get("id")
                     except Exception:
-                        portal_news_id = None
+                        pass  # JSON parsing failed, ignore silently
+
                 except Exception as e:
                     success = False
                     response_msg = str(e)
@@ -3211,3 +3213,123 @@ class CategoryStatsAPIView(APIView):
                 raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
         else:
             return today - timedelta(days=7), today
+
+
+class UserPortalDistributionStatsAPIView(APIView):
+    """
+    GET /api/user-portal-stats/<user_id>/?range=today|yesterday|7d|1m|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+    Returns per-portal distribution summary for a given user within the selected range.
+
+    Example Output:
+    {
+        "user_id": 15,
+        "date_range": {"start_date": "2025-11-01", "end_date": "2025-11-01", "filter": "today"},
+        "portals": [
+            {
+                "portal_id": 1,
+                "portal_name": "Middle East Bulletin",
+                "total_distributed": 12,
+                "success_distributed": 9,
+                "failed_distributed": 3,
+                "success_ratio": 75.0
+            },
+            ...
+        ]
+    }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        try:
+            range_type = request.query_params.get("range", "today")
+            start_date, end_date = self._get_date_range(range_type, request)
+
+            # --- 1️⃣ Filter all distributions created by this user ---
+            qs = NewsDistribution.objects.filter(
+                news_post__created_by_id=user_id,
+                completed_at__date__range=[start_date, end_date]
+            ).select_related("portal")
+
+            if not qs.exists():
+                return Response(success_response(
+                    {
+                        "user_id": user_id,
+                        "date_range": {
+                            "start_date": str(start_date),
+                            "end_date": str(end_date),
+                            "filter": range_type,
+                        },
+                        "portals": []
+                    },
+                    "No distribution data found for this user in the selected range."
+                ), status=200)
+
+            # --- 2️⃣ Aggregate portal-wise stats ---
+            portal_stats = (
+                qs.values("portal_id", "portal__name")
+                .annotate(
+                    total_distributed=Count("id"),
+                    success_distributed=Count("id", filter=Q(status="SUCCESS")),
+                    failed_distributed=Count("id", filter=Q(status="FAILED")),
+                )
+                .order_by("portal__name")
+            )
+
+            # --- 3️⃣ Calculate success ratios ---
+            result = []
+            for p in portal_stats:
+                total = p["total_distributed"]
+                success = p["success_distributed"]
+                failed = p["failed_distributed"]
+                ratio = round((success / total) * 100, 2) if total > 0 else 0.0
+
+                result.append({
+                    "portal_id": p["portal_id"],
+                    "portal_name": p["portal__name"],
+                    "total_distributed": total,
+                    "success_distributed": success,
+                    "failed_distributed": failed,
+                    "success_ratio": ratio,
+                })
+
+            # --- 4️⃣ Build response ---
+            response_data = {
+                "user_id": user_id,
+                "date_range": {
+                    "start_date": str(start_date),
+                    "end_date": str(end_date),
+                    "filter": range_type,
+                },
+                "portals": result,
+            }
+
+            return Response(success_response(response_data, "User portal distribution stats retrieved."))
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+
+    # Helper for date range
+    def _get_date_range(self, range_type, request):
+        now = timezone.localtime()
+        today = now.date()
+
+        if range_type == "today":
+            return today, today
+        elif range_type == "yesterday":
+            y = today - timedelta(days=1)
+            return y, y
+        elif range_type == "7d":
+            return today - timedelta(days=7), today
+        elif range_type == "1m":
+            return today - timedelta(days=30), today
+        elif range_type == "custom":
+            try:
+                start_date = datetime.strptime(request.query_params.get("start_date"), "%Y-%m-%d").date()
+                end_date = datetime.strptime(request.query_params.get("end_date"), "%Y-%m-%d").date()
+                return start_date, end_date
+            except Exception:
+                raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
+        else:
+            return today, today
+        
