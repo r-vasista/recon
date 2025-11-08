@@ -2101,15 +2101,16 @@ class PortalStatsAPIView(APIView):
 
 class GlobalStatsAPIView(APIView):
     """
-    GET /api/global-stats/
+    GET /api/global-stats/?range=today|yesterday|7d|1m|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 
     Returns:
     - Top Performing Categories (MasterCategory-wise post counts)
-    - Weekly Performance (Success/Failed counts for each day, last 7 days)
-    - Top Contributors (User-wise total distributions across all portals)
+    - Weekly Performance (Success/Failed counts within selected range)
+    - Top Contributors (User-wise total distributions)
+    
     Role logic:
-        - MASTER: weekly performance for all users
-        - USER: weekly performance for their own posts only
+        - MASTER: data for all users
+        - USER: limited to their own posts
     """
     permission_classes = [IsAuthenticated]
 
@@ -2119,78 +2120,107 @@ class GlobalStatsAPIView(APIView):
             role_obj = getattr(user, "role", None)
             role_name = getattr(role_obj.role, "name", "").upper() if role_obj else None
 
-            today = timezone.now().date()
-            last_week = today - timedelta(days=6)
+            # --- Date range filter ---
+            range_type = request.query_params.get("range", "7d")
+            start_date, end_date = self._get_date_range(range_type, request)
 
-            # --- Base Queryset ---
+            # --- Base queryset ---
             distributions = NewsDistribution.objects.select_related("portal", "master_category", "news_post")
+            if role_name != "MASTER":
+                distributions = distributions.filter(news_post__created_by=user)
 
             # --- 1️⃣ Top Performing Categories ---
             top_categories = (
-                distributions.filter(master_category__isnull=False)
+                distributions.filter(
+                    master_category__isnull=False,
+                    sent_at__date__range=[start_date, end_date]
+                )
                 .values("master_category__id", "master_category__name")
                 .annotate(total_posts=Count("news_post", distinct=True))
                 .order_by("-total_posts")[:10]
             )
 
-            # --- 2️⃣ Weekly Performance (SUCCESS / FAILED for last 7 days) ---
-            weekly_qs = distributions.filter(sent_at__date__range=[last_week, today])
+            # --- 2️⃣ Weekly / Range Performance ---
+            range_qs = distributions.filter(sent_at__date__range=[start_date, end_date])
 
-            # Apply user-level filter if not MASTER
-            if role_name != "MASTER":
-                weekly_qs = weekly_qs.filter(news_post__created_by=user)
-
-            weekly_data = (
-                weekly_qs
+            daily_data = (
+                range_qs
                 .values("sent_at__date", "status")
                 .annotate(count=Count("id"))
             )
 
-            week_stats = defaultdict(lambda: {"SUCCESS": 0, "FAILED": 0})
-            for entry in weekly_data:
+            daily_stats = defaultdict(lambda: {"SUCCESS": 0, "FAILED": 0})
+            for entry in daily_data:
                 date = entry["sent_at__date"]
                 status_val = entry["status"]
                 count = entry["count"]
                 if status_val in ["SUCCESS", "FAILED"]:
-                    week_stats[date][status_val] = count
+                    daily_stats[date][status_val] = count
 
-            weekly_performance = []
-            for i in range(7):
-                date = today - timedelta(days=i)
-                weekly_performance.append({
+            output_trend = []
+            days_range = (end_date - start_date).days + 1
+            for i in range(days_range):
+                date = start_date + timedelta(days=i)
+                output_trend.append({
                     "day": date.strftime("%a"),
-                    "date": date,
-                    "success": week_stats[date]["SUCCESS"],
-                    "failed": week_stats[date]["FAILED"],
+                    "date": str(date),
+                    "success": daily_stats[date]["SUCCESS"],
+                    "failed": daily_stats[date]["FAILED"],
                 })
-            weekly_performance.reverse()
 
-            # --- 3️⃣ Top Contributors (Global distribution counts) ---
+            # --- 3️⃣ Top Contributors ---
             top_contributors = (
-                distributions
+                distributions.filter(sent_at__date__range=[start_date, end_date])
                 .values("news_post__created_by__id", "news_post__created_by__username")
                 .annotate(total_distributions=Count("id"))
                 .order_by("-total_distributions")[:10]
             )
 
+            # --- ✅ Response ---
             response_data = {
+                "date_range": {
+                    "start_date": str(start_date),
+                    "end_date": str(end_date),
+                    "filter": range_type,
+                },
                 "top_performing_categories": top_categories,
-                "weekly_performance": weekly_performance,
+                "performance_trend": output_trend,
                 "top_contributors": top_contributors,
             }
 
             return Response(
-                {"success": True, "message": "Global stats fetched successfully", "data": response_data},
+                success_response(response_data, "Global stats fetched successfully"),
                 status=status.HTTP_200_OK,
             )
 
         except Exception as e:
-            return Response(
-                {"success": False, "error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    # --- Helper: date range logic ---
+    def _get_date_range(self, range_type, request):
+        now = timezone.localtime()
+        today = now.date()
 
+        if range_type == "today":
+            return today, today
+        elif range_type == "yesterday":
+            y = today - timedelta(days=1)
+            return y, y
+        elif range_type == "7d":
+            return today - timedelta(days=6), today
+        elif range_type == "1m":
+            return today - timedelta(days=30), today
+        elif range_type == "custom":
+            try:
+                start_date = datetime.strptime(request.query_params.get("start_date"), "%Y-%m-%d").date()
+                end_date = datetime.strptime(request.query_params.get("end_date"), "%Y-%m-%d").date()
+                return start_date, end_date
+            except Exception:
+                raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
+        else:
+            return today - timedelta(days=6), today
+        
+        
 class InactivityAlertsAPIView(APIView, PaginationMixin):
     """
     GET /api/admin/inactivity-alerts/?range=24h|48h|7d&page=1&page_size=10
