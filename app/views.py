@@ -1205,52 +1205,45 @@ class NewsDistributionDetailAPIView(APIView):
             )
 
 class AdminStatsAPIView(APIView):
+    """
+    GET /api/admin/stats/?range=today|yesterday|7d|1m|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+
+    Returns admin/user-specific KPIs for posts and news distributions.
+    - MASTER role: shows all posts and distributions.
+    - USER role: shows only their own posts and distributions.
+    """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        """
-        GET /api/admin/stats/?today=true
-        GET /api/admin/stats/?start_date=2025-10-01&end_date=2025-10-05
-
-        Returns admin/user-specific KPIs for posts and news distributions.
-
-        - MASTER role: shows all posts and distributions.
-        - USER role: shows only user's own posts and distributions.
-        """
         try:
             user = request.user
             role = getattr(user.role, "role", None)
 
-            today_param = request.query_params.get("today")
-            start_date = request.query_params.get("start_date")
-            end_date = request.query_params.get("end_date")
-
-            date_filter = {}
+            # --- Date Filtering (Unified) ---
+            range_type = request.query_params.get("range", "today")
+            start_date, end_date = self._get_date_range(range_type, request)
             today = timezone.now().date()
 
-            # --- Date Filtering ---
-            if today_param and today_param.lower() == "true":
-                date_filter["created_at__date"] = today
-            elif start_date and end_date:
-                date_filter["created_at__date__range"] = [start_date, end_date]
+            # Convert to filter dict for posts/distributions
+            date_filter = {"created_at__date__range": [start_date, end_date]}
 
-            # --- MASTER ADMIN STATS ---
+            # --- MASTER ROLE ---
             if role and role.name.upper() == "MASTER":
                 posts_qs = MasterNewsPost.objects.filter(**date_filter)
                 total_posts = posts_qs.count()
                 total_draft_posts = posts_qs.filter(status="DRAFT").count()
                 total_published_posts = posts_qs.filter(status="PUBLISHED").count()
 
+                # Today’s posts
                 today_posts_qs = MasterNewsPost.objects.filter(created_at__date=today)
                 today_total_posts = today_posts_qs.count()
                 today_draft_posts = today_posts_qs.filter(status="DRAFT").count()
 
-                total_users = (
-                    User.objects.filter(**date_filter).count()
-                    if date_filter else User.objects.count()
-                )
-                total_portals = Portal.objects.filter(**date_filter).count()
-                total_master_categories = MasterCategory.objects.filter(**date_filter).count()
+                # General entities
+                total_users = User.objects.count()
+                total_portals = Portal.objects.count()
+                total_master_categories = MasterCategory.objects.count()
 
                 distributions = NewsDistribution.objects.filter(**date_filter)
 
@@ -1264,9 +1257,10 @@ class AdminStatsAPIView(APIView):
                     "total_portals": total_portals,
                     "total_master_categories": total_master_categories,
                 }
+
                 stats.update(self._get_distribution_stats(distributions, today))
 
-            # --- USER STATS ---
+            # --- USER ROLE ---
             elif role and role.name.upper() == "USER":
                 posts_qs = MasterNewsPost.objects.filter(created_by=user, **date_filter)
                 total_posts = posts_qs.count()
@@ -1304,6 +1298,7 @@ class AdminStatsAPIView(APIView):
                     "total_portals": len(portals),
                     "total_master_categories": len(master_categories),
                 }
+
                 stats.update(self._get_distribution_stats(user_distributions, today))
 
             else:
@@ -1312,18 +1307,22 @@ class AdminStatsAPIView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
+            # ✅ Return Combined Data
+            stats["date_range"] = {
+                "start_date": str(start_date),
+                "end_date": str(end_date),
+                "filter": range_type,
+            }
+
             return Response(
                 success_response(stats, "Stats fetched successfully"),
                 status=status.HTTP_200_OK,
             )
 
         except Exception as e:
-            return Response(
-                error_response(str(e)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    # --- Helper Function ---
+    # --- Helper for Distribution Stats ---
     def _get_distribution_stats(self, queryset, today):
         total_distributions = queryset.count()
         successful_distributions = queryset.filter(status="SUCCESS").count()
@@ -1370,6 +1369,30 @@ class AdminStatsAPIView(APIView):
             }
         }
 
+    # --- Unified Date Range Helper ---
+    def _get_date_range(self, range_type, request):
+        now = timezone.localtime()
+        today = now.date()
+
+        if range_type == "today":
+            return today, today
+        elif range_type == "yesterday":
+            y = today - timedelta(days=1)
+            return y, y
+        elif range_type == "7d":
+            return today - timedelta(days=6), today
+        elif range_type == "1m":
+            return today - timedelta(days=30), today
+        elif range_type == "custom":
+            try:
+                start_date = datetime.strptime(request.query_params.get("start_date"), "%Y-%m-%d").date()
+                end_date = datetime.strptime(request.query_params.get("end_date"), "%Y-%m-%d").date()
+                return start_date, end_date
+            except Exception:
+                raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
+        else:
+            # Default: last 7 days
+            return today - timedelta(days=6), today
       
         
 class DomainDistributionStatsAPIView(APIView):
