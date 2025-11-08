@@ -2479,7 +2479,7 @@ class FailureReasonsStatsAPIView(APIView):
 
 class MasterCategoryHeatmapAPIView(APIView):
     """
-    GET /api/analytics/master-category-heatmap/?range=1d|7d|30d|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+    GET /api/analytics/master-category-heatmap/?range=today|yesterday|7d|1m|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 
     Returns total postings per MasterCategory for the given range,
     compared with the previous same-length range.
@@ -2501,50 +2501,14 @@ class MasterCategoryHeatmapAPIView(APIView):
 
             # --- Range parameter ---
             range_param = request.query_params.get("range", "7d").lower()
-            now = timezone.now().date()
+            start_date, end_date = self._get_date_range(range_param, request)
 
-            # --- Compute date ranges ---
-            if range_param == "1d":
-                days = 1
-                current_start = now - timedelta(days=days)
-                current_end = now
+            # Calculate period length
+            days = (end_date - start_date).days or 1
 
-            elif range_param == "30d":
-                days = 30
-                current_start = now - timedelta(days=days)
-                current_end = now
-
-            elif range_param == "custom":
-                try:
-                    print('in custom')
-                    start_date = request.query_params.get("start_date")
-                    end_date = request.query_params.get("end_date")
-
-                    if not start_date or not end_date:
-                        return Response(
-                            {"success": False, "error": "Custom range requires start_date and end_date in YYYY-MM-DD format."},
-                            status=400
-                        )
-
-                    current_start = datetime.strptime(start_date, "%Y-%m-%d").date()
-                    current_end = datetime.strptime(end_date, "%Y-%m-%d").date()
-
-                    days = (current_end - current_start).days or 1
-                except Exception:
-                    return Response(
-                        {"success": False, "error": "Invalid date format. Expected YYYY-MM-DD."},
-                        status=400
-                    )
-
-            else:
-                # Default: 7 days
-                days = 7
-                current_start = now - timedelta(days=days)
-                current_end = now
-
-            # Previous period range
-            previous_start = current_start - timedelta(days=days)
-            previous_end = current_start
+            # Previous period (same length before current range)
+            previous_start = start_date - timedelta(days=days)
+            previous_end = start_date
 
             # --- Base queryset ---
             base_qs = MasterNewsPost.objects.filter(master_category__isnull=False)
@@ -2553,14 +2517,14 @@ class MasterCategoryHeatmapAPIView(APIView):
 
             # --- Current period stats ---
             current_stats = (
-                base_qs.filter(created_at__date__gte=current_start, created_at__date__lte=current_end)
+                base_qs.filter(created_at__date__range=[start_date, end_date])
                 .values("master_category__id", "master_category__name")
                 .annotate(current_posts=Count("id"))
             )
 
             # --- Previous period stats ---
             previous_stats = (
-                base_qs.filter(created_at__date__gte=previous_start, created_at__date__lte=previous_end)
+                base_qs.filter(created_at__date__range=[previous_start, previous_end])
                 .values("master_category__id")
                 .annotate(previous_posts=Count("id"))
             )
@@ -2600,8 +2564,8 @@ class MasterCategoryHeatmapAPIView(APIView):
             return Response({
                 "success": True,
                 "data": {
-                    "current_start": str(current_start),
-                    "current_end": str(current_end),
+                    "current_start": str(start_date),
+                    "current_end": str(end_date),
                     "previous_start": str(previous_start),
                     "previous_end": str(previous_end),
                     "categories": results
@@ -2610,7 +2574,37 @@ class MasterCategoryHeatmapAPIView(APIView):
 
         except Exception as e:
             return Response({"success": False, "error": str(e)}, status=500)
-   
+
+    # --- Helper: Unified Date Range Filter ---
+    def _get_date_range(self, range_type, request):
+        now = timezone.localtime()
+        today = now.date()
+
+        if range_type == "today":
+            return today, today
+
+        elif range_type == "yesterday":
+            y = today - timedelta(days=1)
+            return y, y
+
+        elif range_type == "7d":
+            return today - timedelta(days=6), today
+
+        elif range_type == "1m":
+            return today - timedelta(days=30), today
+
+        elif range_type == "custom":
+            try:
+                start_date = datetime.strptime(request.query_params.get("start_date"), "%Y-%m-%d").date()
+                end_date = datetime.strptime(request.query_params.get("end_date"), "%Y-%m-%d").date()
+                return start_date, end_date
+            except Exception:
+                raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
+
+        else:
+            # Default to last 7 days
+            return today - timedelta(days=6), today
+        
 
 class UserPostStatsAPIView(APIView, PaginationMixin):
     """
