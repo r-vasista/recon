@@ -1205,52 +1205,45 @@ class NewsDistributionDetailAPIView(APIView):
             )
 
 class AdminStatsAPIView(APIView):
+    """
+    GET /api/admin/stats/?range=today|yesterday|7d|1m|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+
+    Returns admin/user-specific KPIs for posts and news distributions.
+    - MASTER role: shows all posts and distributions.
+    - USER role: shows only their own posts and distributions.
+    """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        """
-        GET /api/admin/stats/?today=true
-        GET /api/admin/stats/?start_date=2025-10-01&end_date=2025-10-05
-
-        Returns admin/user-specific KPIs for posts and news distributions.
-
-        - MASTER role: shows all posts and distributions.
-        - USER role: shows only user's own posts and distributions.
-        """
         try:
             user = request.user
             role = getattr(user.role, "role", None)
 
-            today_param = request.query_params.get("today")
-            start_date = request.query_params.get("start_date")
-            end_date = request.query_params.get("end_date")
-
-            date_filter = {}
+            # --- Date Filtering (Unified) ---
+            range_type = request.query_params.get("range", "today")
+            start_date, end_date = self._get_date_range(range_type, request)
             today = timezone.now().date()
 
-            # --- Date Filtering ---
-            if today_param and today_param.lower() == "true":
-                date_filter["created_at__date"] = today
-            elif start_date and end_date:
-                date_filter["created_at__date__range"] = [start_date, end_date]
+            # Convert to filter dict for posts/distributions
+            date_filter = {"created_at__date__range": [start_date, end_date]}
 
-            # --- MASTER ADMIN STATS ---
+            # --- MASTER ROLE ---
             if role and role.name.upper() == "MASTER":
                 posts_qs = MasterNewsPost.objects.filter(**date_filter)
                 total_posts = posts_qs.count()
                 total_draft_posts = posts_qs.filter(status="DRAFT").count()
                 total_published_posts = posts_qs.filter(status="PUBLISHED").count()
 
+                # Today’s posts
                 today_posts_qs = MasterNewsPost.objects.filter(created_at__date=today)
                 today_total_posts = today_posts_qs.count()
                 today_draft_posts = today_posts_qs.filter(status="DRAFT").count()
 
-                total_users = (
-                    User.objects.filter(**date_filter).count()
-                    if date_filter else User.objects.count()
-                )
-                total_portals = Portal.objects.filter(**date_filter).count()
-                total_master_categories = MasterCategory.objects.filter(**date_filter).count()
+                # General entities
+                total_users = User.objects.count()
+                total_portals = Portal.objects.count()
+                total_master_categories = MasterCategory.objects.count()
 
                 distributions = NewsDistribution.objects.filter(**date_filter)
 
@@ -1264,9 +1257,10 @@ class AdminStatsAPIView(APIView):
                     "total_portals": total_portals,
                     "total_master_categories": total_master_categories,
                 }
+
                 stats.update(self._get_distribution_stats(distributions, today))
 
-            # --- USER STATS ---
+            # --- USER ROLE ---
             elif role and role.name.upper() == "USER":
                 posts_qs = MasterNewsPost.objects.filter(created_by=user, **date_filter)
                 total_posts = posts_qs.count()
@@ -1304,6 +1298,7 @@ class AdminStatsAPIView(APIView):
                     "total_portals": len(portals),
                     "total_master_categories": len(master_categories),
                 }
+
                 stats.update(self._get_distribution_stats(user_distributions, today))
 
             else:
@@ -1312,18 +1307,22 @@ class AdminStatsAPIView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
+            # ✅ Return Combined Data
+            stats["date_range"] = {
+                "start_date": str(start_date),
+                "end_date": str(end_date),
+                "filter": range_type,
+            }
+
             return Response(
                 success_response(stats, "Stats fetched successfully"),
                 status=status.HTTP_200_OK,
             )
 
         except Exception as e:
-            return Response(
-                error_response(str(e)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    # --- Helper Function ---
+    # --- Helper for Distribution Stats ---
     def _get_distribution_stats(self, queryset, today):
         total_distributions = queryset.count()
         successful_distributions = queryset.filter(status="SUCCESS").count()
@@ -1370,16 +1369,49 @@ class AdminStatsAPIView(APIView):
             }
         }
 
+    # --- Unified Date Range Helper ---
+    def _get_date_range(self, range_type, request):
+        now = timezone.localtime()
+        today = now.date()
+
+        if range_type == "today":
+            return today, today
+        elif range_type == "yesterday":
+            y = today - timedelta(days=1)
+            return y, y
+        elif range_type == "7d":
+            return today - timedelta(days=6), today
+        elif range_type == "1m":
+            return today - timedelta(days=30), today
+        elif range_type == "custom":
+            try:
+                start_date = datetime.strptime(request.query_params.get("start_date"), "%Y-%m-%d").date()
+                end_date = datetime.strptime(request.query_params.get("end_date"), "%Y-%m-%d").date()
+                return start_date, end_date
+            except Exception:
+                raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
+        else:
+            # Default: last 7 days
+            return today - timedelta(days=6), today
       
         
 class DomainDistributionStatsAPIView(APIView):
+    """
+    GET /api/domain-distribution-stats/?range=today|yesterday|7d|1m|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+
+    Returns portal-wise distribution stats with success ratios and averages.
+    - MASTER: shows all portals
+    - USER: only assigned portals
+    """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
         try:
             user = request.user
             role = getattr(getattr(user, "role", None), "role", None)
-            today = timezone.now().date()
+            range_type = request.query_params.get("range", "today")
+            start_date, end_date = self._get_date_range(range_type, request)
             stats = []
 
             # ---------------- MASTER ROLE ----------------
@@ -1387,53 +1419,33 @@ class DomainDistributionStatsAPIView(APIView):
                 domains = Portal.objects.all().order_by("name")
 
                 for domain in domains:
-                    distributions = NewsDistribution.objects.filter(portal=domain)
-                    today_distributions = distributions.filter(created_at__date=today)
+                    distributions = NewsDistribution.objects.filter(
+                        portal=domain,
+                        created_at__date__range=[start_date, end_date],
+                    )
 
-                    # Filter out time_taken = 0 for average calculations
                     valid_times = distributions.filter(time_taken__gt=0)
-                    today_valid_times = today_distributions.filter(time_taken__gt=0)
-
                     total_distributions = distributions.count()
                     successful_distributions = distributions.filter(status="SUCCESS").count()
-                    today_total_distributions = today_distributions.count()
-                    today_successful_distributions = today_distributions.filter(status="SUCCESS").count()
+                    failed_distributions = distributions.filter(status="FAILED").count()
+                    pending_distributions = distributions.filter(status="PENDING").count()
 
-                    # Calculate success percentages
+                    # Success ratio
                     success_percentage = (
                         round((successful_distributions / total_distributions) * 100, 2)
                         if total_distributions > 0 else 0.0
-                    )
-                    today_success_percentage = (
-                        round((today_successful_distributions / today_total_distributions) * 100, 2)
-                        if today_total_distributions > 0 else 0.0
                     )
 
                     domain_stats = {
                         "portal_id": domain.id,
                         "portal_name": domain.name,
-
-                        # --- Overall Counts ---
                         "total_distributions": total_distributions,
                         "successful_distributions": successful_distributions,
-                        "failed_distributions": distributions.filter(status="FAILED").count(),
-                        "pending_distributions": distributions.filter(status="PENDING").count(),
+                        "failed_distributions": failed_distributions,
+                        "pending_distributions": pending_distributions,
                         "retry_counts": distributions.aggregate(total=Sum("retry_count"))["total"] or 0,
-
-                        # --- Overall Metrics ---
                         "success_percentage": success_percentage,
                         "average_time_taken": round(valid_times.aggregate(avg=Avg("time_taken"))["avg"] or 0, 2),
-
-                        # --- Today's Counts ---
-                        "today_total_distributions": today_total_distributions,
-                        "today_successful_distributions": today_successful_distributions,
-                        "today_failed_distributions": today_distributions.filter(status="FAILED").count(),
-                        "today_pending_distributions": today_distributions.filter(status="PENDING").count(),
-                        "today_retry_counts": today_distributions.aggregate(total=Sum("retry_count"))["total"] or 0,
-
-                        # --- Today's Metrics ---
-                        "today_success_percentage": today_success_percentage,
-                        "today_average_time_taken": round(today_valid_times.aggregate(avg=Avg("time_taken"))["avg"] or 0, 2),
                     }
 
                     stats.append(domain_stats)
@@ -1451,51 +1463,30 @@ class DomainDistributionStatsAPIView(APIView):
                     distributions = NewsDistribution.objects.filter(
                         portal=domain,
                         news_post__created_by=user,
+                        created_at__date__range=[start_date, end_date],
                     )
-                    today_distributions = distributions.filter(created_at__date=today)
 
                     valid_times = distributions.filter(time_taken__gt=0)
-                    today_valid_times = today_distributions.filter(time_taken__gt=0)
-
                     total_distributions = distributions.count()
                     successful_distributions = distributions.filter(status="SUCCESS").count()
-                    today_total_distributions = today_distributions.count()
-                    today_successful_distributions = today_distributions.filter(status="SUCCESS").count()
+                    failed_distributions = distributions.filter(status="FAILED").count()
+                    pending_distributions = distributions.filter(status="PENDING").count()
 
                     success_percentage = (
                         round((successful_distributions / total_distributions) * 100, 2)
                         if total_distributions > 0 else 0.0
                     )
-                    today_success_percentage = (
-                        round((today_successful_distributions / today_total_distributions) * 100, 2)
-                        if today_total_distributions > 0 else 0.0
-                    )
 
                     domain_stats = {
                         "portal_id": domain.id,
                         "portal_name": domain.name,
-
-                        # --- Overall Counts ---
                         "total_distributions": total_distributions,
                         "successful_distributions": successful_distributions,
-                        "failed_distributions": distributions.filter(status="FAILED").count(),
-                        "pending_distributions": distributions.filter(status="PENDING").count(),
+                        "failed_distributions": failed_distributions,
+                        "pending_distributions": pending_distributions,
                         "retry_counts": distributions.aggregate(total=Sum("retry_count"))["total"] or 0,
-
-                        # --- Overall Metrics ---
                         "success_percentage": success_percentage,
                         "average_time_taken": round(valid_times.aggregate(avg=Avg("time_taken"))["avg"] or 0, 2),
-
-                        # --- Today's Counts ---
-                        "today_total_distributions": today_total_distributions,
-                        "today_successful_distributions": today_successful_distributions,
-                        "today_failed_distributions": today_distributions.filter(status="FAILED").count(),
-                        "today_pending_distributions": today_distributions.filter(status="PENDING").count(),
-                        "today_retry_counts": today_distributions.aggregate(total=Sum("retry_count"))["total"] or 0,
-
-                        # --- Today's Metrics ---
-                        "today_success_percentage": today_success_percentage,
-                        "today_average_time_taken": round(today_valid_times.aggregate(avg=Avg("time_taken"))["avg"] or 0, 2),
                     }
 
                     stats.append(domain_stats)
@@ -1506,24 +1497,53 @@ class DomainDistributionStatsAPIView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
-            # --- Sort (Leaderboard) by Total Distributions ---
+            # --- Sort by total distributions (Leaderboard style) ---
             stats = sorted(stats, key=lambda x: x["total_distributions"], reverse=True)
 
-            # --- Assign Ranks ---
             for rank, item in enumerate(stats, start=1):
                 item["rank"] = rank
 
+            response_data = {
+                "date_range": {
+                    "start_date": str(start_date),
+                    "end_date": str(end_date),
+                    "filter": range_type,
+                },
+                "portals": stats,
+            }
+
             return Response(
-                success_response(stats, "Domain leaderboard & distribution stats fetched successfully"),
+                success_response(response_data, "Domain distribution stats fetched successfully"),
                 status=status.HTTP_200_OK,
             )
 
         except Exception as e:
-            return Response(
-                error_response(str(e)),
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    # --- Unified Date Range Helper ---
+    def _get_date_range(self, range_type, request):
+        now = timezone.localtime()
+        today = now.date()
+
+        if range_type == "today":
+            return today, today
+        elif range_type == "yesterday":
+            y = today - timedelta(days=1)
+            return y, y
+        elif range_type == "7d":
+            return today - timedelta(days=6), today
+        elif range_type == "1m":
+            return today - timedelta(days=30), today
+        elif range_type == "custom":
+            try:
+                start_date = datetime.strptime(request.query_params.get("start_date"), "%Y-%m-%d").date()
+                end_date = datetime.strptime(request.query_params.get("end_date"), "%Y-%m-%d").date()
+                return start_date, end_date
+            except Exception:
+                raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
+        else:
+            # Default to last 7 days
+            return today - timedelta(days=6), today
 
 class AllPortalsTagsLiveAPIView(APIView):
     permission_classes = [IsAuthenticated]
