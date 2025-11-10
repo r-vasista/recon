@@ -3376,4 +3376,64 @@ class UserPortalDistributionStatsAPIView(APIView):
                 raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
         else:
             return today, today
-        
+
+
+class NewsDistributionFetchAPIView(APIView):
+    """
+    GET /api/news-distribution/{id}/fetch/
+    Fetches the corresponding news post details from the target portal 
+    using the saved portal_news_id in NewsDistribution.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            # --- 1️⃣ Validate Distribution ---
+            distribution = get_object_or_404(NewsDistribution, pk=pk)
+            portal = distribution.portal
+            portal_news_id = distribution.portal_news_id
+
+            if not portal_news_id:
+                return Response(
+                    error_response("No portal_news_id found for this distribution. Cannot fetch details."),
+                    status=400
+                )
+
+            # --- 2️⃣ Prepare API URL ---
+            api_url = f"{portal.base_url}/api/news/{portal_news_id}/"
+            response_data = None
+            success = False
+
+            # --- 3️⃣ Call Portal API ---
+            try:
+                response = requests.get(api_url, timeout=60)
+                success = response.status_code in [200, 201]
+                try:
+                    response_data = response.json()
+                except Exception:
+                    response_data = {"raw_text": response.text}
+            except Exception as e:
+                return Response(
+                    error_response(f"Failed to connect to portal API: {str(e)}"),
+                    status=500
+                )
+
+            # --- 4️⃣ Handle Success or Failure ---
+            if success:
+                return Response(
+                    success_response({
+                        "portal": portal.name,
+                        "portal_news_id": portal_news_id,
+                        "portal_response": response_data['data'] if response_data['status'] == True else response_data,
+                    }, "Fetched news details successfully from portal."),
+                    status=200
+                )
+            else:
+                return Response(
+                    error_response(f"Portal returned error: {response.status_code} - {response.text}"),
+                    status=response.status_code
+                )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
