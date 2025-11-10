@@ -2946,7 +2946,7 @@ class NewsDistributionEditAPIView(APIView):
     """
     PUT /api/news-distribution/{id}/edit/
     Updates distributed news both in Recon and the target portal.
-    Supports updating text fields and edited image.
+    Supports all editable fields from the portal NewsPost model.
     """
 
     permission_classes = [IsAuthenticated]
@@ -2960,70 +2960,78 @@ class NewsDistributionEditAPIView(APIView):
 
             portal = distribution.portal
             portal_news_id = distribution.portal_news_id
+            news_post = distribution.news_post
 
-            # --- Update local AI fields ---
+            # --- 1️⃣ Update local AI & editable fields ---
             editable_fields = [
-                "ai_title", "ai_short_description", "ai_content", "ai_meta_title", "ai_slug"
+                "ai_title", "ai_short_description", "ai_content", "ai_meta_title", "ai_slug",
+                "is_active", "Head_Lines", "articles", "trending", "BreakingNews",
+                "Event", "Event_date", "Event_end_date", "schedule_date", "post_tag"
             ]
+
             for field in editable_fields:
                 if field in request.data:
                     setattr(distribution, field, request.data[field])
 
-            # --- Handle image update (optional) ---
+            # --- 2️⃣ Handle edited image (optional) ---
             if "edited_image" in request.FILES:
                 distribution.edited_image = request.FILES["edited_image"]
 
             distribution.edit_count = getattr(distribution, "edit_count", 0) + 1
             distribution.save()
 
-            # --- Prepare payload (Recon → Portal field map) ---
-            news_post = distribution.news_post
+            # --- 3️⃣ Build payload for portal update ---
             payload = {
-                "post_title": distribution.ai_title,
-                "meta_title": distribution.ai_meta_title,
-                "slug": distribution.ai_slug,
-                "post_short_des": distribution.ai_short_description,
-                "post_des": distribution.ai_content,
-                "post_tag": news_post.post_tag or "#latest",
-                "Event_date": (news_post.Event_date or timezone.now().date()).isoformat(),
-                "Eventend_date": (news_post.Event_end_date or timezone.now().date()).isoformat(),
-                "schedule_date": (news_post.schedule_date or timezone.now()).isoformat(),
-                "is_active": int(bool(news_post.latest_news)) if news_post.latest_news is not None else 0,
-                "Event": int(bool(news_post.upcoming_event)) if news_post.upcoming_event is not None else 0,
-                "Head_Lines": int(bool(news_post.Head_Lines)) if news_post.Head_Lines is not None else 0,
-                "articles": int(bool(news_post.articles)) if news_post.articles is not None else 0,
-                "trending": int(bool(news_post.trending)) if news_post.trending is not None else 0,
-                "BreakingNews": int(bool(news_post.BreakingNews)) if news_post.BreakingNews is not None else 0,
-                "post_status": news_post.counter or 0,
+                "post_title": distribution.ai_title or news_post.title,
+                "meta_title": distribution.ai_meta_title or news_post.meta_title,
+                "slug": distribution.ai_slug or news_post.slug,
+                "post_short_des": distribution.ai_short_description or news_post.short_description,
+                "post_des": distribution.ai_content or news_post.content,
+                "post_tag": request.data.get("post_tag", news_post.post_tag or "#latest"),
+                "is_active": int(bool(int(request.data.get("is_active", news_post.is_active)))),
+                "Head_Lines": int(bool(int(request.data.get("Head_Lines", news_post.Head_Lines)))),
+                "articles": int(bool(int(request.data.get("articles", news_post.articles)))),
+                "trending": int(bool(int(request.data.get("trending", news_post.trending)))),
+                "BreakingNews": int(bool(int(request.data.get("BreakingNews", news_post.BreakingNews)))),
+                "Event": int(bool(int(request.data.get("Event", news_post.Event)))),
+                "Event_date": request.data.get("Event_date", (news_post.Event_date or timezone.now().date()).isoformat()),
+                "Eventend_date": request.data.get("Event_end_date", (news_post.Event_end_date or timezone.now().date()).isoformat()),
+                "schedule_date": request.data.get("schedule_date", (news_post.schedule_date or timezone.now()).isoformat()),
+                "post_status": request.data.get("post_status", news_post.counter or 0),
             }
 
-            # --- Prepare image for upload (if edited) ---
+            # --- 4️⃣ Handle edited image upload ---
             files = {}
             if distribution.edited_image:
-                files["post_image"] = open(distribution.edited_image.path, "rb")
+                try:
+                    files["post_image"] = open(distribution.edited_image.path, "rb")
+                except Exception as e:
+                    return Response(error_response(f"Image upload failed: {str(e)}"), status=400)
 
-            # --- API call to portal ---
+            # --- 5️⃣ Call target portal API ---
             api_url = f"{portal.base_url}/api/update-news/{portal_news_id}/"
             try:
-                response = requests.put(api_url, data=payload, files=files if files else None, timeout=60)
+                response = requests.put(api_url, data=payload, files=files if files else None, timeout=90)
                 success = response.status_code in [200, 201]
                 resp_text = response.text
             except Exception as e:
                 success = False
                 resp_text = str(e)
 
-            # --- Update distribution response ---
+            # --- 6️⃣ Update distribution record ---
             distribution.response_message = f"EDIT: {resp_text[:500]}"
             distribution.completed_at = timezone.now()
             distribution.status = "SUCCESS" if success else "FAILED"
             distribution.save(update_fields=["response_message", "completed_at", "status"])
 
+            # --- 7️⃣ Response ---
             return Response(success_response({
                 "portal": portal.name,
                 "portal_news_id": portal_news_id,
                 "success": success,
                 "response": resp_text,
-            }, "NewsDistribution updated successfully."))
+                "payload_sent": payload
+            }, "NewsDistribution updated successfully."), status=200)
 
         except Exception as e:
             return Response(error_response(str(e)), status=500)
@@ -3376,4 +3384,64 @@ class UserPortalDistributionStatsAPIView(APIView):
                 raise ValueError("Invalid or missing custom date range format (expected YYYY-MM-DD).")
         else:
             return today, today
-        
+
+
+class NewsDistributionFetchAPIView(APIView):
+    """
+    GET /api/news-distribution/{id}/fetch/
+    Fetches the corresponding news post details from the target portal 
+    using the saved portal_news_id in NewsDistribution.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            # --- 1️⃣ Validate Distribution ---
+            distribution = get_object_or_404(NewsDistribution, pk=pk)
+            portal = distribution.portal
+            portal_news_id = distribution.portal_news_id
+
+            if not portal_news_id:
+                return Response(
+                    error_response("No portal_news_id found for this distribution. Cannot fetch details."),
+                    status=400
+                )
+
+            # --- 2️⃣ Prepare API URL ---
+            api_url = f"{portal.base_url}/api/news/{portal_news_id}/"
+            response_data = None
+            success = False
+
+            # --- 3️⃣ Call Portal API ---
+            try:
+                response = requests.get(api_url, timeout=60)
+                success = response.status_code in [200, 201]
+                try:
+                    response_data = response.json()
+                except Exception:
+                    response_data = {"raw_text": response.text}
+            except Exception as e:
+                return Response(
+                    error_response(f"Failed to connect to portal API: {str(e)}"),
+                    status=500
+                )
+
+            # --- 4️⃣ Handle Success or Failure ---
+            if success:
+                return Response(
+                    success_response({
+                        "portal": portal.name,
+                        "portal_news_id": portal_news_id,
+                        "portal_response": response_data['data'] if response_data['status'] == True else response_data,
+                    }, "Fetched news details successfully from portal."),
+                    status=200
+                )
+            else:
+                return Response(
+                    error_response(f"Portal returned error: {response.status_code} - {response.text}"),
+                    status=response.status_code
+                )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
