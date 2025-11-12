@@ -2033,13 +2033,14 @@ class NewsKPIAPIView(APIView):
 
 class PortalStatsAPIView(APIView):
     """
-    GET /api/portal-stats/?portal_id=1
+    GET /api/portal-stats/?portal_id=1&range=today|yesterday|7d|1m|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 
     Returns:
     - Top Performing Categories (MasterCategory-wise post counts)
-    - Weekly Performance (Success/Failed counts for each day)
+    - Performance Trend (Success/Failed counts by day)
     - Top Contributors (User-wise distribution count in this portal)
     """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
@@ -2051,11 +2052,49 @@ class PortalStatsAPIView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            today = timezone.now().date()
-            last_week = today - timedelta(days=6)
+            # --- Date range logic ---
+            range_param = request.query_params.get("range", "7d").lower()
+            now = timezone.now().date()
+
+            if range_param == "today":
+                start_date = now
+                end_date = now
+
+            elif range_param == "yesterday":
+                start_date = now - timedelta(days=1)
+                end_date = now - timedelta(days=1)
+
+            elif range_param == "1m":
+                start_date = now - timedelta(days=30)
+                end_date = now
+
+            elif range_param == "custom":
+                start_date_str = request.query_params.get("start_date")
+                end_date_str = request.query_params.get("end_date")
+
+                if not start_date_str or not end_date_str:
+                    return Response(
+                        {"success": False, "error": "Custom range requires start_date and end_date (YYYY-MM-DD)."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                try:
+                    start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+                    end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+                except ValueError:
+                    return Response(
+                        {"success": False, "error": "Invalid date format. Use YYYY-MM-DD."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            else:  # Default 7 days
+                start_date = now - timedelta(days=7)
+                end_date = now
 
             # --- Base Queryset ---
-            distributions = NewsDistribution.objects.filter(portal_id=portal_id)
+            distributions = NewsDistribution.objects.filter(
+                portal_id=portal_id,
+                sent_at__date__range=[start_date, end_date]
+            )
 
             # --- 1️⃣ Top Performing Categories ---
             top_categories = (
@@ -2065,34 +2104,32 @@ class PortalStatsAPIView(APIView):
                 .order_by("-total_posts")[:10]
             )
 
-            # --- 2️⃣ Weekly Performance (last 7 days success/fail per day) ---
-            weekly_data = (
-                distributions.filter(sent_at__date__range=[last_week, today])
-                .values("sent_at__date", "status")
+            # --- 2️⃣ Performance by Day ---
+            daily_data = (
+                distributions.values("sent_at__date", "status")
                 .annotate(count=Count("id"))
             )
 
-            # Build structured weekly response
-            week_stats = defaultdict(lambda: {"SUCCESS": 0, "FAILED": 0})
-            for entry in weekly_data:
+            daily_stats = defaultdict(lambda: {"SUCCESS": 0, "FAILED": 0})
+            for entry in daily_data:
                 date = entry["sent_at__date"]
                 status_val = entry["status"]
                 count = entry["count"]
                 if status_val in ["SUCCESS", "FAILED"]:
-                    week_stats[date][status_val] = count
+                    daily_stats[date][status_val] = count
 
-            weekly_performance = []
-            for i in range(7):
-                date = today - timedelta(days=i)
-                weekly_performance.append({
+            days_in_range = (end_date - start_date).days + 1
+            daily_performance = []
+            for i in range(days_in_range):
+                date = start_date + timedelta(days=i)
+                daily_performance.append({
                     "day": date.strftime("%a"),
-                    "date": date,
-                    "success": week_stats[date]["SUCCESS"],
-                    "failed": week_stats[date]["FAILED"],
+                    "date": str(date),
+                    "success": daily_stats[date]["SUCCESS"],
+                    "failed": daily_stats[date]["FAILED"],
                 })
-            weekly_performance.reverse()
 
-            # --- 3️⃣ Top Contributors (users who distributed most in this portal) ---
+            # --- 3️⃣ Top Contributors ---
             top_contributors = (
                 distributions
                 .values("news_post__created_by__id", "news_post__created_by__username")
@@ -2102,20 +2139,25 @@ class PortalStatsAPIView(APIView):
 
             response_data = {
                 "portal_id": portal_id,
+                "date_range": {
+                    "start_date": str(start_date),
+                    "end_date": str(end_date),
+                    "range_type": range_param,
+                },
                 "top_performing_categories": top_categories,
-                "weekly_performance": weekly_performance,
+                "performance_trend": daily_performance,
                 "top_contributors": top_contributors,
             }
 
             return Response(
                 {"success": True, "message": "Portal stats fetched successfully", "data": response_data},
-                status=status.HTTP_200_OK,
+                status=status.HTTP_200_OK
             )
 
         except Exception as e:
             return Response(
                 {"success": False, "error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 
