@@ -2036,6 +2036,7 @@ class PortalStatsAPIView(APIView):
     GET /api/portal-stats/?portal_id=1&range=today|yesterday|7d|1m|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 
     Returns:
+    - KPI Summary (total, success, failed, avg time, success ratio)
     - Top Performing Categories (MasterCategory-wise post counts)
     - Performance Trend (Success/Failed counts by day)
     - Top Contributors (User-wise distribution count in this portal)
@@ -2059,19 +2060,15 @@ class PortalStatsAPIView(APIView):
             if range_param == "today":
                 start_date = now
                 end_date = now
-
             elif range_param == "yesterday":
                 start_date = now - timedelta(days=1)
                 end_date = now - timedelta(days=1)
-
             elif range_param == "1m":
                 start_date = now - timedelta(days=30)
                 end_date = now
-
             elif range_param == "custom":
                 start_date_str = request.query_params.get("start_date")
                 end_date_str = request.query_params.get("end_date")
-
                 if not start_date_str or not end_date_str:
                     return Response(
                         {"success": False, "error": "Custom range requires start_date and end_date (YYYY-MM-DD)."},
@@ -2085,7 +2082,6 @@ class PortalStatsAPIView(APIView):
                         {"success": False, "error": "Invalid date format. Use YYYY-MM-DD."},
                         status=status.HTTP_400_BAD_REQUEST
                     )
-
             else:  # Default 7 days
                 start_date = now - timedelta(days=7)
                 end_date = now
@@ -2096,7 +2092,24 @@ class PortalStatsAPIView(APIView):
                 sent_at__date__range=[start_date, end_date]
             )
 
-            # --- 1️⃣ Top Performing Categories ---
+            # --- 1️⃣ KPI Summary ---
+            total_posts = distributions.count()
+            success_posts = distributions.filter(status="SUCCESS").count()
+            failed_posts = distributions.filter(status="FAILED").count()
+
+            avg_time = round(distributions.filter(time_taken__gt=0).aggregate(avg=Avg("time_taken"))["avg"] or 0, 2)
+
+            success_ratio = round((success_posts / total_posts) * 100, 2) if total_posts > 0 else 0.0
+
+            kpi_summary = {
+                "total_posts": total_posts,
+                "success_posts": success_posts,
+                "failed_posts": failed_posts,
+                "average_time_to_publish": avg_time,
+                "success_ratio": success_ratio
+            }
+
+            # --- 2️⃣ Top Performing Categories ---
             top_categories = (
                 distributions.filter(master_category__isnull=False)
                 .values("master_category__id", "master_category__name")
@@ -2104,7 +2117,7 @@ class PortalStatsAPIView(APIView):
                 .order_by("-total_posts")[:10]
             )
 
-            # --- 2️⃣ Performance by Day ---
+            # --- 3️⃣ Daily Performance Trend ---
             daily_data = (
                 distributions.values("sent_at__date", "status")
                 .annotate(count=Count("id"))
@@ -2122,14 +2135,21 @@ class PortalStatsAPIView(APIView):
             daily_performance = []
             for i in range(days_in_range):
                 date = start_date + timedelta(days=i)
+                success = daily_stats[date]["SUCCESS"]
+                failed = daily_stats[date]["FAILED"]
+                total = success + failed
+                success_rate = round((success / total) * 100, 2) if total > 0 else 0.0
+
                 daily_performance.append({
                     "day": date.strftime("%a"),
                     "date": str(date),
-                    "success": daily_stats[date]["SUCCESS"],
-                    "failed": daily_stats[date]["FAILED"],
+                    "success": success,
+                    "failed": failed,
+                    "total": total,
+                    "success_rate": success_rate
                 })
 
-            # --- 3️⃣ Top Contributors ---
+            # --- 4️⃣ Top Contributors ---
             top_contributors = (
                 distributions
                 .values("news_post__created_by__id", "news_post__created_by__username")
@@ -2137,6 +2157,7 @@ class PortalStatsAPIView(APIView):
                 .order_by("-total_distributions")[:10]
             )
 
+            # --- Final Response ---
             response_data = {
                 "portal_id": portal_id,
                 "date_range": {
@@ -2144,6 +2165,7 @@ class PortalStatsAPIView(APIView):
                     "end_date": str(end_date),
                     "range_type": range_param,
                 },
+                "kpi_summary": kpi_summary,
                 "top_performing_categories": top_categories,
                 "performance_trend": daily_performance,
                 "top_contributors": top_contributors,
