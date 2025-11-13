@@ -11,6 +11,8 @@ from user.models import (
 from .utils import generate_variation_with_gpt
 from django.utils.text import slugify
 import requests, time
+import logging
+logger = logging.getLogger("news_publish")
 
 User = get_user_model()
 
@@ -26,11 +28,15 @@ def publish_master_news(self, news_post_id, user_id, mappings_data):
             "use_default": False
         }
     """
+    logger = logging.getLogger("news_publish")
+
+    logger.info(f"Task {self.request.id} started for news_post={news_post_id}")
 
     try:
         news_post = MasterNewsPost.objects.get(id=news_post_id)
         user = User.objects.get(id=user_id)
     except Exception as e:
+        logger.error(f"Failed to load user/news_post — {e}")
         return {"success": False, "error": str(e)}
 
     results = []

@@ -181,7 +181,7 @@ LOGGING = {
             "filename": os.path.join(BASE_DIR, "gpt_variation.log"),
             "formatter": "verbose",
         },
-        "publish_file": {  # ✅ new file handler
+        "publish_file": { 
             "level": "INFO",
             "class": "logging.FileHandler",
             "filename": os.path.join(BASE_DIR, "news_publish.log"),
@@ -199,7 +199,7 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
-        "news_publish": {  # ✅ your new logger
+        "news_publish": {
             "handlers": ["publish_file", "console"],
             "level": "INFO",
             "propagate": False,
