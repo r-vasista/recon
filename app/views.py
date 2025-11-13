@@ -2,6 +2,7 @@ import requests
 import json
 import time
 import logging
+from celery.result import AsyncResult
 from statistics import mean
 from collections import defaultdict, Counter
 from django.utils import timezone
@@ -3535,7 +3536,7 @@ class BackgroundNewsPostPublishAPIView(APIView):
             if not assigned:
                 return Response(error_response("Not assigned to this category"), status=403)
 
-            # Build mapping list for Celery
+            # Build clean mapping list for Celery (IDs ONLY)
             mappings = []
             db_mappings = MasterCategoryMapping.objects.filter(
                 master_category_id=master_category_id
@@ -3543,16 +3544,47 @@ class BackgroundNewsPostPublishAPIView(APIView):
 
             for m in db_mappings:
                 mappings.append({
-                    "portal": m.portal_category.portal,
-                    "portal_category": m.portal_category,
+                    "portal_id": m.portal_category.portal.id,
+                    "portal_category_id": m.portal_category.id,
                     "use_default": m.use_default_content
                 })
 
-            # Call Celery
-            task = publish_master_news.delay(news_post.id, user.id, mappings)
+            # Trigger Celery task
+            task = publish_master_news.delay(
+                news_post_id=news_post.id,
+                user_id=user.id,
+                mappings_data=mappings
+            )
 
-            return Response(success_response({"task_id": task.id},
-                                             "Publish started in background"), status=200)
+            return Response(
+                success_response({"task_id": task.id}, "Publish started in background"),
+                status=200
+            )
 
         except Exception as e:
             return Response(error_response(str(e)), status=500)
+
+
+class PublishStatusAPIView(APIView):
+    def get(self, request):
+        task_id = request.query_params.get("task_id")
+        if not task_id:
+            return Response(error_response("task_id required"), status=400)
+
+        result = AsyncResult(task_id)
+
+        def safe_json(value):
+            try:
+                json.dumps(value)
+                return value
+            except Exception:
+                return str(value)
+
+        clean_result = safe_json(result.result)
+
+        return Response(success_response({
+            "task_id": task_id,
+            "state": result.state,
+            "result": clean_result,
+            "traceback": result.traceback
+        }))

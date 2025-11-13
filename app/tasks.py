@@ -3,7 +3,7 @@ from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth import get_user_model
 from app.models import (
-    MasterNewsPost, NewsDistribution, PortalPrompt
+    MasterNewsPost, NewsDistribution, PortalPrompt, Portal, PortalCategory
 )
 from user.models import (
     PortalUserMapping
@@ -19,7 +19,7 @@ User = get_user_model()
 def publish_master_news(self, news_post_id, user_id, mappings_data):
     """
     Celery task to publish one MasterNewsPost to many portals.
-    mappings_data = list of dicts with:
+    mappings_data example:
         {
             "portal_id": 1,
             "portal_category_id": 5,
@@ -36,9 +36,13 @@ def publish_master_news(self, news_post_id, user_id, mappings_data):
     results = []
 
     for mapping in mappings_data:
-        portal = mapping["portal"]
-        portal_category = mapping["portal_category"]
+        portal_id = mapping["portal_id"]
+        portal_category_id = mapping["portal_category_id"]
         use_default = mapping["use_default"]
+
+        # Load objects (SAFE)
+        portal = Portal.objects.get(id=portal_id)
+        portal_category = PortalCategory.objects.get(id=portal_category_id)
 
         # Create or fetch distribution row
         dist, _ = NewsDistribution.objects.get_or_create(
@@ -170,8 +174,9 @@ def publish_master_news(self, news_post_id, user_id, mappings_data):
 
         results.append({
             "portal": portal.name,
+            "category": portal_category.name,
             "success": success,
-            "response": msg,
+            "response": msg
         })
 
     return {"success": True, "results": results}
