@@ -44,6 +44,7 @@ from .pagination import PaginationMixin
 from user.models import (
     UserCategoryGroupAssignment, PortalUserMapping
 )
+from app.tasks import publish_master_news
 
 User = get_user_model()
 
@@ -2755,7 +2756,6 @@ class UserPostStatsAPIView(APIView, PaginationMixin):
             now = timezone.now()
             today = now.date()
             
-            print(date_filter)
 
             if date_filter == "today":
                 posts_qs = posts_qs.filter(created_at__date=today)
@@ -3509,6 +3509,50 @@ class NewsDistributionFetchAPIView(APIView):
                     error_response(f"Portal returned error: {response.status_code} - {response.text}"),
                     status=response.status_code
                 )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+
+
+class BackgroundNewsPostPublishAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            user = request.user
+            news_post = get_object_or_404(MasterNewsPost, pk=pk)
+
+            master_category_id = request.data.get("master_category_id") or news_post.master_category_id
+            if not master_category_id:
+                return Response(error_response("master_category_id required"), status=400)
+
+            # Validate assignment
+            assigned = UserCategoryGroupAssignment.objects.filter(
+                user=user,
+                master_category_id=master_category_id
+            ).exists()
+
+            if not assigned:
+                return Response(error_response("Not assigned to this category"), status=403)
+
+            # Build mapping list for Celery
+            mappings = []
+            db_mappings = MasterCategoryMapping.objects.filter(
+                master_category_id=master_category_id
+            ).select_related("portal_category", "portal_category__portal")
+
+            for m in db_mappings:
+                mappings.append({
+                    "portal": m.portal_category.portal,
+                    "portal_category": m.portal_category,
+                    "use_default": m.use_default_content
+                })
+
+            # Call Celery
+            task = publish_master_news.delay(news_post.id, user.id, mappings)
+
+            return Response(success_response({"task_id": task.id},
+                                             "Publish started in background"), status=200)
 
         except Exception as e:
             return Response(error_response(str(e)), status=500)
