@@ -951,6 +951,7 @@ class MasterNewsPostPublishAPIView(APIView):
 
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)       
+  
         
 class NewsPostCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -1679,6 +1680,8 @@ class MyPostsListAPIView(APIView, PaginationMixin):
                 queryset = queryset.filter(created_at__date=today - timedelta(days=1))
             elif date_filter == "7d":
                 queryset = queryset.filter(created_at__gte=now - timedelta(days=7))
+            elif date_filter == "1m":
+                queryset = queryset.filter(created_at__gte=now - timedelta(days=30))
             elif date_filter == "custom":
                 parsed_start = parse_date(start_date)
                 parsed_end = parse_date(end_date)
