@@ -3,7 +3,7 @@ from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth import get_user_model
 from app.models import (
-    MasterNewsPost, NewsDistribution, PortalPrompt, Portal, PortalCategory
+    MasterNewsPost, NewsDistribution, PortalPrompt, Portal, PortalCategory, NewsPublishTask
 )
 from user.models import (
     PortalUserMapping
@@ -29,28 +29,54 @@ def publish_master_news(self, news_post_id, user_id, mappings_data):
         }
     """
     logger = logging.getLogger("news_publish")
+    task_id = self.request.id
 
-    logger.info(f"Task {self.request.id} started for news_post={news_post_id}")
+    logger.info(f"[{task_id}] Task started for news_post={news_post_id}")
+
+    # --- Fetch task record ---
+    task_record = NewsPublishTask.objects.filter(task_id=task_id).first()
+    if task_record:
+        task_record.status = "STARTED"
+        task_record.save()
 
     try:
+        # -------- Load Post & User --------
         news_post = MasterNewsPost.objects.get(id=news_post_id)
         user = User.objects.get(id=user_id)
     except Exception as e:
-        logger.error(f"Failed to load user/news_post — {e}")
+        logger.error(f"[{task_id}] Error loading user/news_post: {e}")
+
+        if task_record:
+            task_record.status = "FAILURE"
+            task_record.save()
+
         return {"success": False, "error": str(e)}
 
     results = []
 
+    # ======================================================
+    # ============  LOOP OVER ALL PORTAL MAPPINGS ===========
+    # ======================================================
     for mapping in mappings_data:
         portal_id = mapping["portal_id"]
         portal_category_id = mapping["portal_category_id"]
         use_default = mapping["use_default"]
 
-        # Load objects (SAFE)
-        portal = Portal.objects.get(id=portal_id)
-        portal_category = PortalCategory.objects.get(id=portal_category_id)
+        try:
+            portal = Portal.objects.get(id=portal_id)
+            portal_category = PortalCategory.objects.get(id=portal_category_id)
+        except Exception as e:
+            logger.error(f"[{task_id}] Invalid portal/category mapping: {e}")
+            results.append({
+                "portal_id": portal_id,
+                "success": False,
+                "response": f"Invalid mapping: {e}"
+            })
+            continue
 
-        # Create or fetch distribution row
+        logger.info(f"[{task_id}] Publishing to {portal.name} ({portal_category.name})")
+
+        # -------- Create / Fetch Distribution --------
         dist, _ = NewsDistribution.objects.get_or_create(
             news_post=news_post,
             portal=portal,
@@ -62,7 +88,7 @@ def publish_master_news(self, news_post_id, user_id, mappings_data):
             }
         )
 
-        # Skip if already successful
+        # Skip previously successful
         if dist.status == "SUCCESS":
             results.append({
                 "portal": portal.name,
@@ -74,7 +100,9 @@ def publish_master_news(self, news_post_id, user_id, mappings_data):
 
         start_time = time.perf_counter()
 
-        # ---------------- AI GENERATION ----------------
+        # =======================================================
+        # ===================== AI GENERATION ====================
+        # =======================================================
         try:
             if use_default:
                 ai_title = news_post.title
@@ -98,15 +126,26 @@ def publish_master_news(self, news_post_id, user_id, mappings_data):
                     news_post.slug,
                     portal_name=portal.name,
                 )
-
         except Exception as e:
+            error_msg = f"AI failed: {str(e)}"
+            logger.error(f"[{task_id}] {error_msg}")
+
             dist.status = "FAILED"
-            dist.response_message = f"AI Failed: {str(e)}"
+            dist.response_message = error_msg
             dist.completed_at = timezone.now()
             dist.save()
+
+            results.append({
+                "portal": portal.name,
+                "category": portal_category.name,
+                "success": False,
+                "response": error_msg
+            })
             continue
 
-        # ---------------- FIND PORTAL USER ----------------
+        # =======================================================
+        # ================= PORTAL USER MAPPING ==================
+        # =======================================================
         portal_user = PortalUserMapping.objects.filter(
             user=user,
             portal=portal,
@@ -114,13 +153,24 @@ def publish_master_news(self, news_post_id, user_id, mappings_data):
         ).first()
 
         if not portal_user:
+            msg = "Portal user not mapped"
+            logger.error(f"[{task_id}] {msg}")
+
             dist.status = "FAILED"
-            dist.response_message = "Portal user not mapped"
+            dist.response_message = msg
             dist.completed_at = timezone.now()
             dist.save()
+
+            results.append({
+                "portal": portal.name,
+                "success": False,
+                "response": msg,
+            })
             continue
 
-        # ---------------- PAYLOAD ----------------
+        # =======================================================
+        # ===================== PAYLOAD ==========================
+        # =======================================================
         payload = {
             "post_cat": portal_category.external_id,
             "post_title": ai_title,
@@ -142,12 +192,13 @@ def publish_master_news(self, news_post_id, user_id, mappings_data):
             "post_status": news_post.counter or 0,
         }
 
-        files = {
-            "post_image": open(news_post.post_image.path, "rb")
-        } if news_post.post_image else None
+        files = {"post_image": open(news_post.post_image.path, "rb")} if news_post.post_image else None
 
-        # ---------------- SEND TO PORTAL ----------------
+        # =======================================================
+        # =================== SEND TO PORTAL =====================
+        # =======================================================
         portal_news_id = None
+
         try:
             api_url = f"{portal.base_url}/api/create-news/"
             response = requests.post(api_url, data=payload, files=files, timeout=90)
@@ -165,7 +216,9 @@ def publish_master_news(self, news_post_id, user_id, mappings_data):
             success = False
             msg = str(e)
 
-        # ---------------- UPDATE DB ----------------
+        # =======================================================
+        # ====================== UPDATE DB ========================
+        # =======================================================
         dist.status = "SUCCESS" if success else "FAILED"
         dist.response_message = msg
         dist.ai_title = ai_title
@@ -184,5 +237,18 @@ def publish_master_news(self, news_post_id, user_id, mappings_data):
             "success": success,
             "response": msg
         })
+
+    # =======================================================
+    # ================ FINAL TASK STATE UPDATE ==============
+    # =======================================================
+    if task_record:
+        # any failed = FAILURE
+        # if any(r["success"] is False for r in results):
+        #     task_record.status = "FAILURE"
+        # else:
+        task_record.status = "SUCCESS"
+        task_record.save()
+
+    logger.info(f"[{task_id}] Completed publishing")
 
     return {"success": True, "results": results}

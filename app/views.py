@@ -31,7 +31,8 @@ from django.utils.text import slugify
 
 
 from .models import (
-    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution, PortalPrompt
+    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution, PortalPrompt,
+    NewsPublishTask
 )
 from .serializers import (
     PortalSerializer, PortalSafeSerializer, PortalCategorySerializer, MasterCategorySerializer, 
@@ -3555,6 +3556,14 @@ class BackgroundNewsPostPublishAPIView(APIView):
                 user_id=user.id,
                 mappings_data=mappings
             )
+            
+            # Save task record
+            NewsPublishTask.objects.create(
+                news_post=news_post,
+                task_id=task.id,
+                triggered_by=user,
+                status="PENDING"
+            )
 
             return Response(
                 success_response({"task_id": task.id}, "Publish started in background"),
@@ -3588,3 +3597,21 @@ class PublishStatusAPIView(APIView):
             "result": clean_result,
             "traceback": result.traceback
         }))
+
+
+class NewsPublishTaskListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        tasks = NewsPublishTask.objects.filter(news_post_id=pk).order_by("-created_at")
+        data = [
+            {
+                "task_id": t.task_id,
+                "status": t.status,
+                "created_at": t.created_at,
+                "updated_at": t.updated_at,
+                "triggered_by": t.triggered_by.username if t.triggered_by else None
+            }
+            for t in tasks
+        ]
+        return Response(success_response(data, "Task history fetched"))
