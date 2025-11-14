@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import (
-    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution, PortalPrompt
+    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution, PortalPrompt,
+    NewsPublishTask
 )
 
 @admin.register(Portal)
@@ -64,3 +65,10 @@ class PortalPromptAdmin(admin.ModelAdmin):
     list_display = ['id', 'portal', 'prompt_text', 'is_global_prompt']
     search_fields = ['id', 'portal', 'prompt_text', 'is_global_prompt']
     list_filter = ['id', 'portal', 'prompt_text', 'is_global_prompt']
+
+
+@admin.register(NewsPublishTask)
+class NewsPublishTaskAdmin(admin.ModelAdmin):
+    list_display = ['id', 'news_post', 'task_id', 'status', 'triggered_by']
+    search_fields = ['id', 'news_post', 'task_id', 'status', 'triggered_by']
+    list_filter = ['id', 'news_post', 'task_id', 'status', 'triggered_by']

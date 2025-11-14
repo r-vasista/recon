@@ -181,7 +181,7 @@ LOGGING = {
             "filename": os.path.join(BASE_DIR, "gpt_variation.log"),
             "formatter": "verbose",
         },
-        "publish_file": {  # ✅ new file handler
+        "publish_file": { 
             "level": "INFO",
             "class": "logging.FileHandler",
             "filename": os.path.join(BASE_DIR, "news_publish.log"),
@@ -199,10 +199,22 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
-        "news_publish": {  # ✅ your new logger
+        "news_publish": {
             "handlers": ["publish_file", "console"],
             "level": "INFO",
             "propagate": False,
         },
     },
 }
+
+# Celery Settings
+CELERY_BROKER_URL = "redis://127.0.0.1:6379/0"
+CELERY_RESULT_BACKEND = "redis://127.0.0.1:6379/0"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "Asia/Kolkata"
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_ALWAYS_EAGER = False
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
+
