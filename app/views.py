@@ -2633,11 +2633,11 @@ class MasterCategoryHeatmapAPIView(APIView):
             start_date, end_date = self._get_date_range(range_param, request)
 
             # Calculate period length
-            days = (end_date - start_date).days or 1
+            days = (end_date - start_date).days + 1   # total days including both ends
 
-            # Previous period (same length before current range)
-            previous_start = start_date - timedelta(days=days)
-            previous_end = start_date
+            # Previous period should be same number of days, ending exactly 1 day before current_start
+            previous_end = start_date - timedelta(days=1)
+            previous_start = previous_end - timedelta(days=days - 1)
 
             # --- Base queryset ---
             base_qs = MasterNewsPost.objects.filter(master_category__isnull=False)
