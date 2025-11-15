@@ -3564,38 +3564,98 @@ class BackgroundNewsPostPublishAPIView(APIView):
             news_post = get_object_or_404(MasterNewsPost, pk=pk)
 
             master_category_id = request.data.get("master_category_id") or news_post.master_category_id
-            if not master_category_id:
-                return Response(error_response("master_category_id required"), status=400)
+            portal_category_ids = request.data.get("portal_category_ids") or news_post.portal_category_ids or []
+            excluded_ids = request.data.get("exclude_portal_categories") or news_post.exclude_portal_categories or []
 
-            # Validate assignment
-            assigned = UserCategoryGroupAssignment.objects.filter(
-                user=user,
-                master_category_id=master_category_id
-            ).exists()
+            # Convert JSON strings → list
+            if isinstance(portal_category_ids, str):
+                try: portal_category_ids = json.loads(portal_category_ids)
+                except: portal_category_ids = []
 
-            if not assigned:
-                return Response(error_response("Not assigned to this category"), status=403)
+            if isinstance(excluded_ids, str):
+                try: excluded_ids = json.loads(excluded_ids)
+                except: excluded_ids = []
 
-            # Build clean mapping list for Celery (IDs ONLY)
+            excluded_ids = [int(x) for x in excluded_ids if str(x).isdigit()]
+
             mappings = []
-            db_mappings = MasterCategoryMapping.objects.filter(
-                master_category_id=master_category_id
-            ).select_related("portal_category", "portal_category__portal")
 
-            for m in db_mappings:
-                mappings.append({
-                    "portal_id": m.portal_category.portal.id,
-                    "portal_category_id": m.portal_category.id,
-                    "use_default": m.use_default_content
-                })
+            # ============================================================
+            #   FLOW A — MASTER CATEGORY BASED
+            # ============================================================
+            if master_category_id:
 
-            # Trigger Celery task
+                assigned = UserCategoryGroupAssignment.objects.filter(
+                    user=user, master_category_id=master_category_id
+                ).exists()
+
+                if not assigned:
+                    return Response(error_response("Not assigned to this category"), status=403)
+
+                db_mappings = MasterCategoryMapping.objects.filter(
+                    master_category_id=master_category_id
+                ).select_related("portal_category", "portal_category__portal")
+
+                for m in db_mappings:
+                    mappings.append({
+                        "portal_id": m.portal_category.portal.id,
+                        "portal_category_id": m.portal_category.id,
+                        "use_default": m.use_default_content
+                    })
+
+                # Add manually selected portal categories
+                if portal_category_ids:
+                    extra_portals = (
+                        PortalCategory.objects.filter(id__in=portal_category_ids)
+                        .select_related("portal")
+                        .exclude(id__in=[m.portal_category_id for m in db_mappings])
+                    )
+
+                    for pc in extra_portals:
+                        mappings.append({
+                            "portal_id": pc.portal.id,
+                            "portal_category_id": pc.id,
+                            "use_default": False
+                        })
+
+            # ============================================================
+            #   FLOW B — ONLY DIRECT PORTAL CATEGORIES
+            # ============================================================
+            else:
+                if not portal_category_ids:
+                    return Response(
+                        error_response("portal_category_ids required when master_category_id not provided"),
+                        status=400
+                    )
+
+                direct_portals = PortalCategory.objects.filter(id__in=portal_category_ids).select_related("portal")
+                if not direct_portals:
+                    return Response(error_response("Invalid portal categories"), status=400)
+
+                for pc in direct_portals:
+                    mappings.append({
+                        "portal_id": pc.portal.id,
+                        "portal_category_id": pc.id,
+                        "use_default": False
+                    })
+
+            # ============================================================
+            #   REMOVE EXCLUDED PORTAL CATEGORIES
+            # ============================================================
+            mappings = [
+                m for m in mappings
+                if m["portal_category_id"] not in excluded_ids
+            ]
+
+            # ============================================================
+            #   TRIGGER CELERY TASK
+            # ============================================================
             task = publish_master_news.delay(
                 news_post_id=news_post.id,
                 user_id=user.id,
                 mappings_data=mappings
             )
-            
+
             # Save task record
             NewsPublishTask.objects.create(
                 news_post=news_post,
