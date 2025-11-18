@@ -9,7 +9,8 @@ from .views import (
     InactivityAlertsAPIView, NewsDistributionRateOverTimeAPIView, FailureReasonsStatsAPIView, MasterCategoryHeatmapAPIView,
     UserPostStatsAPIView, UserPerformanceAPIView, NewsDistributionEditAPIView, NewsDistributionDeleteAPIView, 
     CategoryStatsAPIView, UserPortalDistributionStatsAPIView, NewsDistributionFetchAPIView, BackgroundNewsPostPublishAPIView,
-    PublishStatusAPIView, NewsPublishTaskListAPIView, UniqueParentCategoryAPIView, PortalCategoriesByParentAPIView
+    PublishStatusAPIView, NewsPublishTaskListAPIView, UniqueParentCategoryAPIView, PortalCategoriesByParentAPIView,
+    PortalCategoryMatchWithMasterCategoryAPIView
 )
 
 urlpatterns = [
@@ -23,6 +24,7 @@ urlpatterns = [
     path('portal/category/', PortalCategoryCreateView.as_view()),
     path('portal/category/<str:portal_name>/<str:external_id>/', PortalCategoryUpdateDeleteView.as_view()),
     path('portals/categories/list/<str:portal_name>/', PortalCategoryListView.as_view()),
+    path('portal/category/matching/', PortalCategoryMatchWithMasterCategoryAPIView.as_view()),
     
     # Master Category
     path('master/category/', MasterCategoryView.as_view()),
