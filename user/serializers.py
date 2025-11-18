@@ -5,7 +5,7 @@ from datetime import timedelta
 from django.contrib.auth import get_user_model
 
 from .models import (
-    PortalUserMapping, UserCategoryGroupAssignment, Portal
+    PortalUserMapping, UserCategoryGroupAssignment, Portal, UserPortalAssignment
 )
 from app.models import (
     Group, MasterCategoryMapping, MasterCategory, NewsDistribution
@@ -265,3 +265,21 @@ class UserAssignmentRemoveSerializer(serializers.Serializer):
         if not data.get("master_category_id") and not data.get("group_id"):
             raise serializers.ValidationError("Either master_category_id or group_id must be provided.")
         return data
+
+
+class UserPortalAssignmentSerializer(serializers.ModelSerializer):
+    portal_name = serializers.CharField(source="portal.name", read_only=True)
+
+    class Meta:
+        model = UserPortalAssignment
+        fields = ["id", "user", "portal", "portal_name", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+    def validate(self, attrs):
+        user = attrs.get("user")
+        portal = attrs.get("portal")
+
+        if UserPortalAssignment.objects.filter(user=user, portal=portal).exists():
+            raise serializers.ValidationError("Portal is already assigned to this user.")
+
+        return attrs

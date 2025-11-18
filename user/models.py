@@ -80,3 +80,34 @@ class UserCategoryGroupAssignment(BaseModel):
         if self.group:
             return f"{self.user} → Group: {self.group}"
         return f"{self.user} → Category: {self.master_category}"
+
+
+class UserPortalAssignment(BaseModel):
+    """
+    Assign a Portal to a User.
+    (Similar to UserCategoryGroupAssignment but for portals only)
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="portal_assignments"
+    )
+
+    portal = models.ForeignKey(
+        Portal,
+        on_delete=models.CASCADE,
+        related_name="user_assignments"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "portal"],
+                name="unique_user_portal_assignment"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user} → Portal: {self.portal}"
+    

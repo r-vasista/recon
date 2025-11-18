@@ -14,12 +14,12 @@ from django.contrib.auth import get_user_model
 import requests
 
 from .models import (
-    PortalUserMapping, UserCategoryGroupAssignment, Role, UserRole
+    PortalUserMapping, UserCategoryGroupAssignment, Role, UserRole, UserPortalAssignment
 )
 from .serializers import (
     PortalCheckResultSerializer, UserRegistrationSerializer, PortalUserMappingListSerializer, CustomTokenObtainPairSerializer,
     UserAssignmentCreateSerializer, UserAssignmentListSerializer, PortalUserMappingSerializer, UserSerializer, UserWithPortalsSerializer,
-    UserAssignmentRemoveSerializer
+    UserAssignmentRemoveSerializer, UserPortalAssignmentSerializer
 )
 from .utils import (
     map_user_to_portals
@@ -587,3 +587,83 @@ class AllUsersAPIView(APIView, PaginationMixin):
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class AssignPortalToUserAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, user_id):
+        try:
+            user = get_object_or_404(User, id=user_id)
+            portal_id = request.data.get("portal_id")
+
+            if not portal_id:
+                return Response(error_response("portal_id is required"), status=400)
+
+            portal = get_object_or_404(Portal, id=portal_id)
+
+            # Check duplicate
+            if UserPortalAssignment.objects.filter(user=user, portal=portal).exists():
+                return Response(error_response("Portal already assigned to this user"), status=409)
+
+            assignment = UserPortalAssignment.objects.create(user=user, portal=portal)
+
+            return Response(
+                success_response(
+                    UserPortalAssignmentSerializer(assignment).data,
+                    "Portal assigned successfully"
+                ),
+                status=201
+            )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+
+
+class RemovePortalFromUserAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, user_id, portal_id):
+        try:
+            assignment = UserPortalAssignment.objects.filter(
+                user_id=user_id, portal_id=portal_id
+            ).first()
+
+            if not assignment:
+                return Response(error_response("Portal not assigned to this user"), status=404)
+
+            assignment.delete()
+
+            return Response(
+                success_response({}, "Portal removed from user"),
+                status=200
+            )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+        
+
+class ListUserPortalsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        try:
+            user = get_object_or_404(User, id=user_id)
+
+            assignments = UserPortalAssignment.objects.filter(user=user).select_related("portal")
+
+            data = [
+                {
+                    "assignment_id": a.id,
+                    "portal_id": a.portal.id,
+                    "portal_name": a.portal.name,
+                    "base_url": a.portal.base_url,
+                    "assigned_at": a.created_at,
+                }
+                for a in assignments
+            ]
+
+            return Response(success_response(data, "User portals fetched successfully"), status=200)
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
