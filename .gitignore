@@ -8,3 +8,4 @@ logs/
 media/
 gpt_variation.log
 news_publish.log
+ga4/service-account.json
