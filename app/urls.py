@@ -8,7 +8,8 @@ from .views import (
     NewsPostUpdateAPIView, MyPostsListAPIView, NewsReportAPIView, NewsKPIAPIView, PortalStatsAPIView, GlobalStatsAPIView,
     InactivityAlertsAPIView, NewsDistributionRateOverTimeAPIView, FailureReasonsStatsAPIView, MasterCategoryHeatmapAPIView,
     UserPostStatsAPIView, UserPerformanceAPIView, NewsDistributionEditAPIView, NewsDistributionDeleteAPIView, 
-    CategoryStatsAPIView, UserPortalDistributionStatsAPIView, NewsDistributionFetchAPIView
+    CategoryStatsAPIView, UserPortalDistributionStatsAPIView, NewsDistributionFetchAPIView, BackgroundNewsPostPublishAPIView,
+    PublishStatusAPIView, NewsPublishTaskListAPIView
 )
 
 urlpatterns = [
@@ -39,6 +40,7 @@ urlpatterns = [
     path('news/create/', NewsPostCreateAPIView.as_view()),
     path('news/update/<int:pk>/', NewsPostUpdateAPIView.as_view()),
     path('publish/news/<int:pk>/', MasterNewsPostPublishAPIView.as_view()),
+    path('back-ground/publish/news/<int:pk>/', BackgroundNewsPostPublishAPIView.as_view()),
     path('news/<int:pk>/', NewsDistributionFetchAPIView.as_view()),
     path('edit/news/<int:pk>/', NewsDistributionEditAPIView.as_view()),
     path('delete/news/<int:pk>/', NewsDistributionDeleteAPIView.as_view()),
@@ -47,6 +49,8 @@ urlpatterns = [
     path('all/posts/', AllNewsPostsAPIView.as_view()),
     path('news/distributed/list/', NewsDistributionListAPIView.as_view()),
     path('news/distributed/detail/<int:pk>/', NewsDistributionDetailAPIView.as_view()),
+    path('publish/status/', PublishStatusAPIView.as_view()),
+    path('news/publish/tasks/list/<int:pk>/', NewsPublishTaskListAPIView.as_view()),
     
     # Stats and Dashboard
     path('admin/stats/', AdminStatsAPIView.as_view()),

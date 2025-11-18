@@ -12,14 +12,15 @@ from django.shortcuts import get_object_or_404
 from django.contrib.auth import get_user_model
 
 import requests
+import json
 
 from .models import (
-    PortalUserMapping, UserCategoryGroupAssignment, Role, UserRole
+    PortalUserMapping, UserCategoryGroupAssignment, Role, UserRole, UserPortalAssignment
 )
 from .serializers import (
     PortalCheckResultSerializer, UserRegistrationSerializer, PortalUserMappingListSerializer, CustomTokenObtainPairSerializer,
     UserAssignmentCreateSerializer, UserAssignmentListSerializer, PortalUserMappingSerializer, UserSerializer, UserWithPortalsSerializer,
-    UserAssignmentRemoveSerializer
+    UserAssignmentRemoveSerializer, UserPortalAssignmentSerializer
 )
 from .utils import (
     map_user_to_portals
@@ -587,3 +588,131 @@ class AllUsersAPIView(APIView, PaginationMixin):
                 error_response(str(e)),
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class AssignPortalToUserAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            user_id = request.data.get("user_id")
+            portal_ids = request.data.get("portal_ids")  # LIST expected
+
+            if not user_id:
+                return Response(error_response("user_id is required"), status=400)
+
+            if not portal_ids:
+                return Response(error_response("portal_ids list is required"), status=400)
+
+            # Convert string → list
+            if isinstance(portal_ids, str):
+                try:
+                    portal_ids = json.loads(portal_ids)
+                except:
+                    return Response(error_response("portal_ids must be a list"), status=400)
+
+            if not isinstance(portal_ids, list):
+                return Response(error_response("portal_ids must be a list"), status=400)
+
+            user = get_object_or_404(User, id=user_id)
+
+            success_list = []
+            failed_list = []
+
+            for pid in portal_ids:
+                try:
+                    portal = Portal.objects.get(id=pid)
+
+                    # Check duplicate
+                    if UserPortalAssignment.objects.filter(user=user, portal=portal).exists():
+                        failed_list.append({
+                            "portal_id": pid,
+                            "reason": "Already assigned"
+                        })
+                        continue
+
+                    # Create assignment
+                    assignment = UserPortalAssignment.objects.create(
+                        user=user,
+                        portal=portal
+                    )
+
+                    success_list.append(UserPortalAssignmentSerializer(assignment).data)
+
+                except Portal.DoesNotExist:
+                    failed_list.append({
+                        "portal_id": pid,
+                        "reason": "Portal not found"
+                    })
+
+            return Response(
+                success_response(
+                    {
+                        "assigned": success_list,
+                        "failed": failed_list
+                    },
+                    "Portal assignment process completed"
+                ),
+                status=200
+            )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+        
+        
+class RemovePortalFromUserAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+        try:
+            user_id = request.data.get("user_id")
+            portal_id = request.data.get("portal_id")
+
+            if not portal_id:
+                return Response(error_response("portal_id is required"), status=400)
+            
+            if not user_id:
+                return Response(error_response("user_id is required"), status=400)
+            
+            assignment = UserPortalAssignment.objects.filter(
+                user_id=user_id, portal_id=portal_id
+            ).first()
+
+            if not assignment:
+                return Response(error_response("Portal not assigned to this user"), status=404)
+
+            assignment.delete()
+
+            return Response(
+                success_response({}, "Portal removed from user"),
+                status=200
+            )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+        
+
+class ListUserPortalsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        try:
+            user = get_object_or_404(User, id=user_id)
+
+            assignments = UserPortalAssignment.objects.filter(user=user).select_related("portal")
+
+            data = [
+                {
+                    "assignment_id": a.id,
+                    "portal_id": a.portal.id,
+                    "portal_name": a.portal.name,
+                    "domain_url": a.portal.domain_url,
+                    "assigned_at": a.created_at,
+                }
+                for a in assignments
+            ]
+
+            return Response(success_response(data, "User portals fetched successfully"), status=200)
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
