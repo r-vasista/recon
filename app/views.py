@@ -3715,3 +3715,31 @@ class NewsPublishTaskListAPIView(APIView):
         ]
         return Response(success_response(data, "Task history fetched"))
     
+
+    
+class UniqueParentCategoryAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, portal_id):
+        try:
+            # Filter categories by portal
+            parent_categories = (
+                PortalCategory.objects
+                .filter(portal_id=portal_id)
+                .exclude(parent_external_id__isnull=True)
+                .exclude(parent_external_id__exact="")
+                .values("parent_name", "parent_external_id")
+                .distinct()
+                .order_by("parent_name")
+            )
+
+            return Response(
+                success_response(
+                    {"parent_categories": list(parent_categories)},
+                    "Parent categories fetched successfully"
+                ),
+                status=200
+            )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
