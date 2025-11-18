@@ -71,4 +71,6 @@ urlpatterns = [
     # GA4 API
     path("ga4/token/", GA4TokenAPI.as_view()),
     path("ga4/query/", GA4UniversalAPI.as_view()),
+
+
 ]

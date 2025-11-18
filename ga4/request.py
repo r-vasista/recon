@@ -1,5 +1,3 @@
-# ga4/request.py
-
 import requests
 from ga4.utils import generate_ga4_token
 
