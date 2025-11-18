@@ -3879,6 +3879,8 @@ class PortalCategoryMatchWithMasterCategoryAPIView(APIView):
                         "portal_category__external_id",
                         "portal_category__parent_name",
                         "portal_category__parent_external_id",
+                        "portal_category__portal_id",
+                        "portal_category__portal__name",
                     )
                 )
 
@@ -3895,7 +3897,18 @@ class PortalCategoryMatchWithMasterCategoryAPIView(APIView):
                             },
                             "mapping_found": True,
                             "master_category_id": master_category_id,
-                            "related_portal_categories": list(related_portal_categories)
+                             "related_portal_categories": [
+                                {
+                                    "id": item["portal_category__id"],
+                                    "name": item["portal_category__name"],
+                                    "external_id": item["portal_category__external_id"],
+                                    "parent_name": item["portal_category__parent_name"],
+                                    "parent_external_id": item["portal_category__parent_external_id"],
+                                    "portal_id": item["portal_category__portal_id"],
+                                    "portal_name": item["portal_category__portal__name"],
+                                }
+                                for item in related_portal_categories
+                            ]
                         },
                         "Mapped portal categories returned"
                     ),
