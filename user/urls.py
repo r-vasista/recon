@@ -32,7 +32,7 @@ urlpatterns = [
     path('all/users/list/', AllUsersAPIView.as_view()),
     
     #User Portal assignment
-    path("user/assign-portal/<int:user_id>/", AssignPortalToUserAPIView.as_view()),
-    path("user/remove-portal/<int:user_id>/<int:portal_id>/", RemovePortalFromUserAPIView.as_view()),
+    path("user/assign-portal/", AssignPortalToUserAPIView.as_view()),
+    path("user/remove-portal/", RemovePortalFromUserAPIView.as_view()),
     path("user/portals/<int:user_id>/", ListUserPortalsAPIView.as_view()),
 ]

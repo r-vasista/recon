@@ -592,14 +592,18 @@ class AllUsersAPIView(APIView, PaginationMixin):
 class AssignPortalToUserAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, user_id):
+    def post(self, request):
         try:
-            user = get_object_or_404(User, id=user_id)
+            user_id = request.data.get("user_id")
             portal_id = request.data.get("portal_id")
 
             if not portal_id:
                 return Response(error_response("portal_id is required"), status=400)
+            
+            if not user_id:
+                return Response(error_response("user_id is required"), status=400)
 
+            user = get_object_or_404(User, id=user_id)
             portal = get_object_or_404(Portal, id=portal_id)
 
             # Check duplicate
@@ -623,8 +627,17 @@ class AssignPortalToUserAPIView(APIView):
 class RemovePortalFromUserAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def delete(self, request, user_id, portal_id):
+    def delete(self, request):
         try:
+            user_id = request.data.get("user_id")
+            portal_id = request.data.get("portal_id")
+
+            if not portal_id:
+                return Response(error_response("portal_id is required"), status=400)
+            
+            if not user_id:
+                return Response(error_response("user_id is required"), status=400)
+            
             assignment = UserPortalAssignment.objects.filter(
                 user_id=user_id, portal_id=portal_id
             ).first()
@@ -657,7 +670,7 @@ class ListUserPortalsAPIView(APIView):
                     "assignment_id": a.id,
                     "portal_id": a.portal.id,
                     "portal_name": a.portal.name,
-                    "base_url": a.portal.base_url,
+                    "domain_url": a.portal.domain_url,
                     "assigned_at": a.created_at,
                 }
                 for a in assignments
