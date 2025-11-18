@@ -3781,3 +3781,146 @@ class PortalCategoriesByParentAPIView(APIView):
 
         except Exception as e:
             return Response(error_response(str(e)), status=500)
+
+
+class PortalCategoryMatchWithMasterCategoryAPIView(APIView):
+    """
+    Resolve PortalCategory Mapping for a User.
+
+    This endpoint accepts a `portal_category_id` and determines whether the
+    requested PortalCategory belongs to any MasterCategory assigned to the user.
+
+    Workflow:
+    -------------------------------------------------------------------------
+    1. Validate that the portal category exists.
+    2. Fetch all MasterCategories assigned to the user.
+    3. Check if the given PortalCategory is mapped under any of those
+       MasterCategories.
+    4. If a mapping is found:
+         - Return ALL PortalCategory instances that belong to that
+           MasterCategory (i.e., the complete mapped category group).
+         - Also return the originally requested PortalCategory.
+    5. If no mapping exists:
+         - Return ONLY the requested PortalCategory instance.
+    6. If the PortalCategory does not exist:
+         - Return 404.
+
+    Query Parameters:
+    -------------------------------------------------------------------------
+    portal_category_id (required) : ID of the PortalCategory to resolve.
+
+    Responses:
+    -------------------------------------------------------------------------
+    ✔ Mapping Found:
+        Returns:
+            - requested_portal_category (object)
+            - mapping_found = True
+            - master_category_id
+            - related_portal_categories (list of mapped categories)
+
+    ✔ No Mapping Found:
+        Returns:
+            - requested_portal_category (object)
+            - mapping_found = False
+            - related_portal_categories = []
+
+    ✔ Errors:
+        - 400: portal_category_id missing
+        - 404: portal category not found
+        - 500: internal server error
+
+    Purpose:
+    -------------------------------------------------------------------------
+    Used in the publishing workflow to automatically determine whether the
+    selected portal category belongs to a mapped group, helping the frontend
+    decide whether to allow multi-portal publishing or treat it as standalone.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            user = request.user
+            portal_category_id = request.query_params.get("portal_category_id")
+
+            if not portal_category_id:
+                return Response(error_response("portal_category_id is required"), status=400)
+
+            # Step 5: Validate portal category exists
+            portal_category = PortalCategory.objects.filter(id=portal_category_id).first()
+            if not portal_category:
+                return Response(error_response("Portal category not found"), status=404)
+
+            # User's assigned master categories
+            user_master_categories = list(
+                UserCategoryGroupAssignment.objects.filter(
+                    user=user,
+                    master_category__isnull=False
+                ).values_list("master_category_id", flat=True)
+            )
+
+            # Step 2: Check if portal category is mapped under any of user’s master categories
+            mapping = None
+            if user_master_categories:
+                mapping = MasterCategoryMapping.objects.filter(
+                    master_category_id__in=user_master_categories,
+                    portal_category_id=portal_category_id
+                ).first()
+
+            # Step 3: If mapping exists return ALL mapped portal categories
+            if mapping:
+                master_category_id = mapping.master_category_id
+
+                related_portal_categories = (
+                    MasterCategoryMapping.objects.filter(master_category_id=master_category_id)
+                    .select_related("portal_category")
+                    .values(
+                        "portal_category__id",
+                        "portal_category__name",
+                        "portal_category__external_id",
+                        "portal_category__parent_name",
+                        "portal_category__parent_external_id",
+                    )
+                )
+
+                return Response(
+                    success_response(
+                        {
+                            "requested_portal_category": {
+                                "id": portal_category.id,
+                                "name": portal_category.name,
+                                "external_id": portal_category.external_id,
+                                "parent_name": portal_category.parent_name,
+                                "parent_external_id": portal_category.parent_external_id,
+                                "portal_id": portal_category.portal_id,
+                            },
+                            "mapping_found": True,
+                            "master_category_id": master_category_id,
+                            "related_portal_categories": list(related_portal_categories)
+                        },
+                        "Mapped portal categories returned"
+                    ),
+                    status=200
+                )
+
+            # Step 4: No mapping found → return only requested portal category instance
+            return Response(
+                success_response(
+                    {
+                        "requested_portal_category": {
+                            "id": portal_category.id,
+                            "name": portal_category.name,
+                            "external_id": portal_category.external_id,
+                            "parent_name": portal_category.parent_name,
+                            "parent_external_id": portal_category.parent_external_id,
+                            "portal_id": portal_category.portal_id,
+                        },
+                        "mapping_found": False,
+                        "related_portal_categories": []
+                    },
+                    "No mapping found — returning only requested portal category"
+                ),
+                status=200
+            )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
