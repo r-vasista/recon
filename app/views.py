@@ -3715,3 +3715,69 @@ class NewsPublishTaskListAPIView(APIView):
         ]
         return Response(success_response(data, "Task history fetched"))
     
+
+    
+class UniqueParentCategoryAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, portal_id):
+        try:
+            # Filter categories by portal
+            parent_categories = (
+                PortalCategory.objects
+                .filter(portal_id=portal_id)
+                .exclude(parent_external_id__isnull=True)
+                .exclude(parent_external_id__exact="")
+                .values("parent_name", "parent_external_id")
+                .distinct()
+                .order_by("parent_name")
+            )
+
+            return Response(
+                success_response(
+                    {"parent_categories": list(parent_categories)},
+                    "Parent categories fetched successfully"
+                ),
+                status=200
+            )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
+
+
+class PortalCategoriesByParentAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            portal_id = request.query_params.get("portal_id")
+            parent_external_id = request.query_params.get("parent_external_id")
+
+            if not portal_id:
+                return Response(error_response("portal_id is required"), status=400)
+
+            if not parent_external_id:
+                return Response(error_response("parent_external_id is required"), status=400)
+
+            # Fetch all child categories for that parent
+            categories = PortalCategory.objects.filter(
+                portal_id=portal_id,
+                parent_external_id=parent_external_id
+            ).values(
+                "id",
+                "name",
+                "external_id",
+                "parent_name",
+                "parent_external_id"
+            ).order_by("name")
+
+            return Response(
+                success_response(
+                    {"categories": list(categories)},
+                    "Portal categories fetched successfully"
+                ),
+                status=200
+            )
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)

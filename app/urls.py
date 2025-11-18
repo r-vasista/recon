@@ -9,7 +9,7 @@ from .views import (
     InactivityAlertsAPIView, NewsDistributionRateOverTimeAPIView, FailureReasonsStatsAPIView, MasterCategoryHeatmapAPIView,
     UserPostStatsAPIView, UserPerformanceAPIView, NewsDistributionEditAPIView, NewsDistributionDeleteAPIView, 
     CategoryStatsAPIView, UserPortalDistributionStatsAPIView, NewsDistributionFetchAPIView, BackgroundNewsPostPublishAPIView,
-    PublishStatusAPIView, NewsPublishTaskListAPIView
+    PublishStatusAPIView, NewsPublishTaskListAPIView, UniqueParentCategoryAPIView, PortalCategoriesByParentAPIView
 )
 
 urlpatterns = [
@@ -30,6 +30,8 @@ urlpatterns = [
     path('master/category/mapping/', MasterCategoryMappingView.as_view()),
     path('master/category/mapping/<int:pk>/', MasterCategoryMappingView.as_view()),
     path('master/categories/mapped/<int:master_category_id>/', MasterCategoryMappingsListView.as_view()),
+    path('parent/categories/list/<int:portal_id>/', UniqueParentCategoryAPIView.as_view()),
+    path('sub-categories/by/parent/category/', PortalCategoriesByParentAPIView.as_view()),
     
     # Groups
     path('group/', GroupCreateListAPIView.as_view()),
