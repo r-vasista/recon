@@ -1,8 +1,9 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.utils import timezone
-from datetime import timedelta
+from datetime import timedelta, datetime
 from django.contrib.auth import get_user_model
+import jwt
 
 from .models import (
     PortalUserMapping, UserCategoryGroupAssignment, Portal, UserPortalAssignment
@@ -35,20 +36,31 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
-
+        
+        # Get the refresh token to extract expiration times
+        refresh = self.get_token(self.user)
+        
         # Add additional user info
         role_name = None
-        if hasattr(self.user, "role") and self.user.role:  # user has UserRole relation
+        if hasattr(self.user, "role") and self.user.role:
             role_name = self.user.role.role.name
-
+        
+        # Calculate expiration times
+        access_token_expiration = datetime.fromtimestamp(refresh.access_token['exp'])
+        refresh_token_expiration = datetime.fromtimestamp(refresh['exp'])
+        
         data.update({
             "user_id": self.user.id,
             "username": self.user.username,
-            "role": role_name
+            "role": role_name,
+            "access_token_expiration": access_token_expiration.isoformat(),
+            "refresh_token_expiration": refresh_token_expiration.isoformat(),
+            # Optionally, also include the expiration in seconds from now
+            "access_expires_in": refresh.access_token['exp'] - datetime.now().timestamp(),
+            "refresh_expires_in": refresh['exp'] - datetime.now().timestamp(),
         })
-
+        
         return data
-    
     
 class PortalCheckResultSerializer(serializers.Serializer):
     portal = serializers.CharField()
