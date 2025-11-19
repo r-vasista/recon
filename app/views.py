@@ -2841,7 +2841,7 @@ class UserPostStatsAPIView(APIView, PaginationMixin):
                         Count("news_distribution", filter=Q(news_distribution__status="FAILED"), distinct=True), 0
                     ),
                 )
-                .order_by("created_by__username")
+                .order_by('-num_master_posts')
             )
 
             # --- Map Assigned Master Categories for Each User ---
