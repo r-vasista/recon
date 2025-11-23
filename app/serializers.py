@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import (
-    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution
+    Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution, CrossPortalMapping
 )
 
 class PortalSerializer(serializers.ModelSerializer):
@@ -168,3 +168,71 @@ class NewsDistributionListSerializer(serializers.ModelSerializer):
             slug = obj.ai_slug.lstrip("/")
             return f"{domain}/{slug}"
         return None
+
+
+class CrossPortalMappingReadSerializer(serializers.ModelSerializer):
+    """
+    Read-only serializer to show human-readable details.
+    """
+    target_category_name = serializers.CharField(source='target_category.name', read_only=True)
+    target_portal_name = serializers.CharField(source='target_category.portal.name', read_only=True)
+    target_portal_id = serializers.IntegerField(source='target_category.portal.id', read_only=True)
+
+    class Meta:
+        model = CrossPortalMapping
+        fields = [
+            'id', 
+            'source_category', 
+            'target_category', 
+            'target_category_name', 
+            'target_portal_name', 
+            'target_portal_id'
+        ]
+
+class CrossPortalMappingCreateSerializer(serializers.Serializer):
+    """
+    Write serializer to handle mapping one source to MULTIPLE targets.
+    """
+    source_category_id = serializers.IntegerField()
+    target_category_ids = serializers.ListField(
+        child=serializers.IntegerField(), 
+        allow_empty=False,
+        help_text="List of PortalCategory IDs to map to."
+    )
+
+    def validate(self, data):
+        source_id = data['source_category_id']
+        target_ids = data['target_category_ids']
+
+        # 1. Validate Source Exists
+        if not PortalCategory.objects.filter(id=source_id).exists():
+            raise serializers.ValidationError({"source_category_id": "Invalid source category ID."})
+
+        # 2. Validate Targets Exist
+        valid_targets = PortalCategory.objects.filter(id__in=target_ids).count()
+        if valid_targets != len(set(target_ids)):
+             raise serializers.ValidationError({"target_category_ids": "One or more target category IDs are invalid."})
+
+        # 3. Prevent Self-Mapping
+        if source_id in target_ids:
+            raise serializers.ValidationError("Cannot map a category to itself.")
+
+        return data
+
+    def create(self, validated_data):
+        source_id = validated_data['source_category_id']
+        target_ids = validated_data['target_category_ids']
+        
+        source_cat = PortalCategory.objects.get(id=source_id)
+        created_mappings = []
+
+        for target_id in target_ids:
+            # get_or_create prevents duplicates if user submits same list twice
+            mapping, created = CrossPortalMapping.objects.get_or_create(
+                source_category=source_cat,
+                target_category_id=target_id
+            )
+            if created:
+                created_mappings.append(mapping)
+        
+        return created_mappings

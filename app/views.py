@@ -14,7 +14,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.http import Http404
@@ -32,12 +32,12 @@ from django.utils.text import slugify
 
 from .models import (
     Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution, PortalPrompt,
-    NewsPublishTask
+    NewsPublishTask, CrossPortalMapping
 )
 from .serializers import (
     PortalSerializer, PortalSafeSerializer, PortalCategorySerializer, MasterCategorySerializer, 
     MasterCategoryMappingSerializer, GroupSerializer, GroupListSerializer, MasterNewsPostSerializer, MasterNewsPostListSerializer,
-    NewsDistributionListSerializer, NewsDistributionSerializer
+    NewsDistributionListSerializer, NewsDistributionSerializer, CrossPortalMappingCreateSerializer, CrossPortalMappingReadSerializer
 )
 from .utils import (
     success_response, error_response, generate_variation_with_gpt, get_portals_from_assignment
@@ -688,190 +688,499 @@ class GroupCategoriesListAPIView(APIView, PaginationMixin):
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+# Legacy code of previous master category flow
+# class MasterNewsPostPublishAPIView(APIView):
+#     """
+#     POST /api/master-news/{id}/publish/
 
+#     Now supports 2 flows:
+#     ---------------------------------------------------------
+#     FLOW A → With master_category_id (existing logic)
+#     FLOW B → Without master_category_id (direct portal categories)
+#     ---------------------------------------------------------
+#     {
+#     "master_category_id": 6,
+#     "portal_category_ids": [22, 23, 45],
+#     "exclude_portal_categories": [23]
+#     }
+#     """
+
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request, pk):
+#         try:
+#             user = request.user
+
+#             # 1. Validate MasterNewsPost
+#             news_post = get_object_or_404(MasterNewsPost, pk=pk)
+
+#             master_category_id = request.data.get("master_category_id") or getattr(news_post.master_category, "id", None)
+#             portal_category_ids = request.data.get("portal_category_ids") or news_post.portal_category_ids or []
+#             excluded_ids = request.data.get("exclude_portal_categories") or news_post.exclude_portal_categories or []
+
+#             # Convert JSON Strings → List
+#             if isinstance(portal_category_ids, str):
+#                 try: portal_category_ids = json.loads(portal_category_ids)
+#                 except: portal_category_ids = []
+
+#             if isinstance(excluded_ids, str):
+#                 try: excluded_ids = json.loads(excluded_ids)
+#                 except: excluded_ids = []
+
+#             excluded_ids = [int(x) for x in excluded_ids if str(x).isdigit()]
+
+#             mappings = []
+
+#             # ============================================================
+#             #   FLOW A — MASTER CATEGORY BASED
+#             # ============================================================
+#             if master_category_id:
+
+#                 # 2. Validate user assignment
+#                 assignment = UserCategoryGroupAssignment.objects.filter(
+#                     user=user, master_category_id=master_category_id
+#                 ).first()
+#                 if not assignment:
+#                     return Response(
+#                         error_response("You are not assigned to this master category."),
+#                         status=status.HTTP_403_FORBIDDEN
+#                     )
+
+#                 # 3. Master-category mappings
+#                 mc_mappings = list(
+#                     MasterCategoryMapping.objects.filter(
+#                         master_category_id=master_category_id
+#                     ).select_related("portal_category", "portal_category__portal")
+#                 )
+
+#                 mappings.extend(mc_mappings)
+
+#                 # Add additional portal categories
+#                 if portal_category_ids:
+#                     extra_portal_categories = (
+#                         PortalCategory.objects.filter(id__in=portal_category_ids)
+#                         .select_related("portal")
+#                         .exclude(id__in=[m.portal_category_id for m in mc_mappings])
+#                     )
+
+#                     for pc in extra_portal_categories:
+#                         mappings.append(SimpleNamespace(
+#                             portal_category=pc,
+#                             use_default_content=False
+#                         ))
+
+#             # ============================================================
+#             #   FLOW B — DIRECT PORTAL CATEGORIES (NEW ADDITION)
+#             # ============================================================
+#             else:
+#                 if not portal_category_ids:
+#                     return Response(
+#                         error_response("portal_category_ids required when master_category_id is not provided"),
+#                         status=400
+#                     )
+
+#                 direct_portals = PortalCategory.objects.filter(
+#                     id__in=portal_category_ids
+#                 ).select_related("portal")
+
+#                 if not direct_portals:
+#                     return Response(error_response("Invalid portal categories"), status=400)
+
+#                 # Convert to mapping-like objects
+#                 for pc in direct_portals:
+#                     mappings.append(SimpleNamespace(
+#                         portal_category=pc,
+#                         use_default_content=False
+#                     ))
+
+#             # ============================================================
+#             #   REMOVE EXCLUDED CATEGORIES
+#             # ============================================================
+#             mappings = [
+#                 m for m in mappings
+#                 if m.portal_category.id not in excluded_ids
+#             ]
+
+#             results = []
+
+#             # ============================================================
+#             #   ORIGINAL PUBLISHING LOGIC — UNTOUCHED
+#             # ============================================================
+#             for mapping in mappings:
+
+#                 portal = mapping.portal_category.portal
+#                 portal_category = mapping.portal_category
+
+#                 # Skip manually excluded
+#                 if portal_category.id in excluded_ids:
+#                     results.append({
+#                         "portal": portal.name,
+#                         "category": portal_category.name,
+#                         "success": False,
+#                         "response": "Skipped manually (portal category excluded)",
+#                     })
+#                     continue
+
+#                 # Existing distribution or create pending
+#                 dist, created = NewsDistribution.objects.get_or_create(
+#                     news_post=news_post,
+#                     portal=portal,
+#                     defaults={
+#                         "portal_category": portal_category,
+#                         "master_category_id": master_category_id,
+#                         "status": "PENDING",
+#                         "response_message": "Queued for publishing",
+#                         "started_at": timezone.now(),
+#                     },
+#                 )
+
+#                 # Skip if already successful
+#                 if dist.status == "SUCCESS":
+#                     results.append({
+#                         "portal": portal.name,
+#                         "category": portal_category.name,
+#                         "success": True,
+#                         "response": "Already published successfully, skipped.",
+#                     })
+#                     continue
+
+#                 # Retry if failed previously
+#                 if dist.status == "FAILED":
+#                     dist.retry_count += 1
+#                     dist.status = "PENDING"
+#                     dist.response_message = "Retrying..."
+#                     dist.save(update_fields=["retry_count", "status", "response_message"])
+
+#                 start_time = time.perf_counter()
+
+#                 # === AI GENERATION ===
+#                 try:
+#                     if hasattr(mapping, "use_default_content") and mapping.use_default_content:
+#                         rewritten_title = news_post.title
+#                         rewritten_short = news_post.short_description
+#                         rewritten_content = news_post.content
+#                         rewritten_meta = news_post.meta_title or news_post.title
+#                         rewritten_slug = news_post.slug or slugify(news_post.meta_title or news_post.title)
+#                     else:
+#                         portal_prompt = (
+#                             PortalPrompt.objects.filter(portal=portal, is_active=True).first()
+#                             or PortalPrompt.objects.filter(portal__isnull=True, is_active=True).first()
+#                         )
+#                         prompt_text = (
+#                             portal_prompt.prompt_text
+#                             if portal_prompt else "Rewrite slightly for clarity"
+#                         )
+
+#                         result = generate_variation_with_gpt(
+#                             news_post.title,
+#                             news_post.short_description,
+#                             news_post.content,
+#                             prompt_text,
+#                             news_post.meta_title,
+#                             news_post.slug,
+#                             portal_name=portal.name,
+#                         )
+
+#                         if not result:
+#                             raise ValueError("AI generation failed — no data returned")
+
+#                         rewritten_title, rewritten_short, rewritten_content, rewritten_meta, rewritten_slug = result
+
+#                 except Exception as e:    
+#                     dist.status = "FAILED"
+#                     dist.response_message = f"AI generation failed: {str(e)}"
+#                     dist.completed_at = timezone.now()
+#                     dist.save(update_fields=["status", "response_message", "completed_at"])
+
+#                     results.append({
+#                         "portal": portal.name,
+#                         "category": portal_category.name,
+#                         "success": False,
+#                         "response": f"AI generation failed: {str(e)}",
+#                     })
+#                     continue
+
+#                 # === PORTAL USER MAPPING ===
+#                 portal_user = PortalUserMapping.objects.filter(
+#                     user=user,
+#                     portal=portal,
+#                     status="MATCHED"
+#                 ).first()
+
+#                 if not portal_user:
+#                     dist.status = "FAILED"
+#                     dist.response_message = "No valid portal user mapping found."
+#                     dist.completed_at = timezone.now()
+#                     dist.save(update_fields=["status", "response_message", "completed_at"])
+
+#                     results.append({
+#                         "portal": portal.name,
+#                         "category": portal_category.name,
+#                         "success": False,
+#                         "response": "No valid portal user mapping found.",
+#                     })
+#                     continue
+
+#                 # === PAYLOAD ===
+#                 payload = {
+#                     "post_cat": portal_category.external_id if portal_category else None,
+#                     "post_title": rewritten_title,
+#                     "post_short_des": rewritten_short,
+#                     "post_des": rewritten_content,
+#                     "meta_title": rewritten_meta,
+#                     "slug": rewritten_slug,
+#                     "post_tag": news_post.post_tag or "",
+#                     "author": portal_user.portal_user_id,
+#                     "Event_date": (news_post.Event_date or timezone.now().date()).isoformat(),
+#                     "Eventend_date": (news_post.Event_end_date or timezone.now().date()).isoformat(),
+#                     "schedule_date": (news_post.schedule_date or timezone.now()).isoformat(),
+#                     "is_active": int(bool(news_post.latest_news)) if news_post.latest_news is not None else 0,
+#                     "Event": int(bool(news_post.upcoming_event)) if news_post.upcoming_event is not None else 0,
+#                     "Head_Lines": int(bool(news_post.Head_Lines)) if news_post.Head_Lines is not None else 0,
+#                     "articles": int(bool(news_post.articles)) if news_post.articles is not None else 0,
+#                     "trending": int(bool(news_post.trending)) if news_post.trending is not None else 0,
+#                     "BreakingNews": int(bool(news_post.BreakingNews)) if news_post.BreakingNews is not None else 0,
+#                     "post_status": news_post.counter or 0,
+#                 }
+
+#                 files = {"post_image": open(news_post.post_image.path, "rb")} if news_post.post_image else None
+
+#                 # === SEND API ===
+#                 portal_news_id = None
+#                 try:
+#                     api_url = f"{portal.base_url}/api/create-news/"
+#                     response = requests.post(api_url, data=payload, files=files, timeout=90)
+#                     success = response.status_code in [200, 201]
+#                     response_msg = response.text
+
+#                     # Extract portal news ID if response is valid JSON
+#                     try:
+#                         resp_json = response.json()
+#                         if isinstance(resp_json, dict) and resp_json.get("status") is True:
+#                             portal_news_id = resp_json.get("data", {}).get("id")
+#                     except Exception:
+#                         pass  # JSON parsing failed, ignore silently
+
+#                 except Exception as e:
+#                     success = False
+#                     response_msg = str(e)
+
+#                 # === SAVE RESULT ===
+#                 elapsed_time = round(time.perf_counter() - start_time, 2)
+
+#                 dist.status = "SUCCESS" if success else "FAILED"
+#                 dist.response_message = response_msg
+#                 dist.ai_title = rewritten_title
+#                 dist.ai_short_description = rewritten_short
+#                 dist.ai_content = rewritten_content
+#                 dist.ai_meta_title = rewritten_meta
+#                 dist.ai_slug = rewritten_slug
+#                 dist.time_taken = elapsed_time
+#                 dist.started_at = timezone.now() - timezone.timedelta(seconds=elapsed_time)
+#                 dist.completed_at = timezone.now()
+#                 dist.portal_news_id = str(portal_news_id) if portal_news_id else None
+#                 dist.save()
+
+#                 results.append({
+#                     "portal": portal.name,
+#                     "category": portal_category.name,
+#                     "success": success,
+#                     "response": response_msg,
+#                     "time_taken": elapsed_time,
+#                 })
+
+#             return Response(success_response(results, "News published successfully."))
+
+#         except Exception as e:
+#             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)       
+  
+ 
+# NEW FLOW BASED ON PORTAL        
 class MasterNewsPostPublishAPIView(APIView):
-    """
-    POST /api/master-news/{id}/publish/
-
-    Now supports 2 flows:
-    ---------------------------------------------------------
-    FLOW A → With master_category_id (existing logic)
-    FLOW B → Without master_category_id (direct portal categories)
-    ---------------------------------------------------------
-    {
-    "master_category_id": 6,
-    "portal_category_ids": [22, 23, 45],
-    "exclude_portal_categories": [23]
-    }
-    """
-
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
         try:
             user = request.user
-
-            # 1. Validate MasterNewsPost
             news_post = get_object_or_404(MasterNewsPost, pk=pk)
 
-            master_category_id = request.data.get("master_category_id") or getattr(news_post.master_category, "id", None)
-            portal_category_ids = request.data.get("portal_category_ids") or news_post.portal_category_ids or []
-            excluded_ids = request.data.get("exclude_portal_categories") or news_post.exclude_portal_categories or []
+            # ============================================================
+            # 1. EXTRACT INPUTS (OVERRIDE LOGIC)
+            # ============================================================
+            
+            # Logic: Use Request Data (Override) -> Else Use Saved Model Data -> Else None
 
-            # Convert JSON Strings → List
-            if isinstance(portal_category_ids, str):
-                try: portal_category_ids = json.loads(portal_category_ids)
-                except: portal_category_ids = []
+            # A. Master Category
+            master_category_id = request.data.get("master_category_id")
+            if master_category_id is None: 
+                master_category_id = getattr(news_post.master_category, "id", None)
 
-            if isinstance(excluded_ids, str):
-                try: excluded_ids = json.loads(excluded_ids)
-                except: excluded_ids = []
+            # B. Cross Portal Trigger
+            # Check request first, then DB
+            cross_portal_trigger_id = request.data.get("cross_portal_category_id")
+            if cross_portal_trigger_id is None:
+                cross_portal_trigger_id = news_post.cross_portal_category_id
 
+            # C. Manual Additions
+            # Check request first, then DB
+            manual_category_ids = request.data.get("portal_category_ids")
+            if manual_category_ids is None:
+                manual_category_ids = news_post.portal_category_ids or []
+
+            # D. Exclusions
+            excluded_ids = request.data.get("exclude_portal_categories")
+            if excluded_ids is None:
+                excluded_ids = news_post.exclude_portal_categories or []
+
+            # --- DATA CLEANING ---
+            def clean_id_list(val):
+                if isinstance(val, str):
+                    try: return json.loads(val)
+                    except: return []
+                return val if isinstance(val, list) else []
+
+            manual_category_ids = clean_id_list(manual_category_ids)
+            excluded_ids = clean_id_list(excluded_ids)
             excluded_ids = [int(x) for x in excluded_ids if str(x).isdigit()]
 
-            mappings = []
+            # Clean Trigger ID to ensure it's an int
+            try:
+                if cross_portal_trigger_id:
+                    cross_portal_trigger_id = int(cross_portal_trigger_id)
+            except ValueError:
+                cross_portal_trigger_id = None
+
 
             # ============================================================
-            #   FLOW A — MASTER CATEGORY BASED
+            # 2. BUILD TARGET LIST
             # ============================================================
+            targets = {}
+
+            # --- SOURCE 1: MASTER CATEGORY (Legacy) ---
             if master_category_id:
+                mc_mappings = MasterCategoryMapping.objects.filter(
+                    master_category_id=master_category_id
+                ).select_related("portal_category", "portal_category__portal")
 
-                # 2. Validate user assignment
-                assignment = UserCategoryGroupAssignment.objects.filter(
-                    user=user, master_category_id=master_category_id
-                ).first()
-                if not assignment:
-                    return Response(
-                        error_response("You are not assigned to this master category."),
-                        status=status.HTTP_403_FORBIDDEN
-                    )
+                for m in mc_mappings:
+                    targets[m.portal_category.id] = {
+                        "category": m.portal_category,
+                        "use_default_content": m.use_default_content
+                    }
 
-                # 3. Master-category mappings
-                mc_mappings = list(
-                    MasterCategoryMapping.objects.filter(
-                        master_category_id=master_category_id
-                    ).select_related("portal_category", "portal_category__portal")
-                )
+            # --- SOURCE 2: CROSS PORTAL MAPPING (The Trigger) ---
+            if cross_portal_trigger_id:
+                trigger_cat = PortalCategory.objects.filter(pk=cross_portal_trigger_id).select_related("portal").first()
+                
+                if trigger_cat:
+                    # 1. Add the TRIGGER category itself
+                    # FORCE use_default_content = True (Per Requirement)
+                    targets[trigger_cat.id] = {
+                        "category": trigger_cat,
+                        "use_default_content": True 
+                    }
 
-                mappings.extend(mc_mappings)
+                    # 2. Find all mapped targets
+                    mapped_relations = CrossPortalMapping.objects.filter(
+                        source_category=trigger_cat
+                    ).select_related("target_category", "target_category__portal")
 
-                # Add additional portal categories
-                if portal_category_ids:
-                    extra_portal_categories = (
-                        PortalCategory.objects.filter(id__in=portal_category_ids)
-                        .select_related("portal")
-                        .exclude(id__in=[m.portal_category_id for m in mc_mappings])
-                    )
+                    for relation in mapped_relations:
+                        t_cat = relation.target_category
+                        # Only add if not already present (preserve existing flags)
+                        if t_cat.id not in targets:
+                            targets[t_cat.id] = {
+                                "category": t_cat,
+                                "use_default_content": False # Targets still get AI rewrite
+                            }
 
-                    for pc in extra_portal_categories:
-                        mappings.append(SimpleNamespace(
-                            portal_category=pc,
-                            use_default_content=False
-                        ))
-
-            # ============================================================
-            #   FLOW B — DIRECT PORTAL CATEGORIES (NEW ADDITION)
-            # ============================================================
-            else:
-                if not portal_category_ids:
-                    return Response(
-                        error_response("portal_category_ids required when master_category_id is not provided"),
-                        status=400
-                    )
-
-                direct_portals = PortalCategory.objects.filter(
-                    id__in=portal_category_ids
+            # --- SOURCE 3: MANUAL EXTRA SELECTIONS ---
+            if manual_category_ids:
+                manual_cats = PortalCategory.objects.filter(
+                    id__in=manual_category_ids
                 ).select_related("portal")
 
-                if not direct_portals:
-                    return Response(error_response("Invalid portal categories"), status=400)
+                for m_cat in manual_cats:
+                    if m_cat.id not in targets:
+                        targets[m_cat.id] = {
+                            "category": m_cat,
+                            "use_default_content": False
+                        }
 
-                # Convert to mapping-like objects
-                for pc in direct_portals:
-                    mappings.append(SimpleNamespace(
-                        portal_category=pc,
-                        use_default_content=False
+            # --- APPLY EXCLUSIONS ---
+            final_target_list = []
+            for cat_id, data in targets.items():
+                if cat_id not in excluded_ids:
+                    final_target_list.append(SimpleNamespace(
+                        portal_category=data["category"],
+                        use_default_content=data["use_default_content"]
                     ))
 
-            # ============================================================
-            #   REMOVE EXCLUDED CATEGORIES
-            # ============================================================
-            mappings = [
-                m for m in mappings
-                if m.portal_category.id not in excluded_ids
-            ]
+            if not final_target_list:
+                return Response(error_response("No valid portal categories found to publish to."), status=400)
 
+            # ============================================================
+            # 3. PUBLISHING LOOP
+            # ============================================================
             results = []
 
-            # ============================================================
-            #   ORIGINAL PUBLISHING LOGIC — UNTOUCHED
-            # ============================================================
-            for mapping in mappings:
-
+            for mapping in final_target_list:
                 portal = mapping.portal_category.portal
                 portal_category = mapping.portal_category
 
-                # Skip manually excluded
-                if portal_category.id in excluded_ids:
-                    results.append({
-                        "portal": portal.name,
-                        "category": portal_category.name,
-                        "success": False,
-                        "response": "Skipped manually (portal category excluded)",
-                    })
-                    continue
-
-                # Existing distribution or create pending
+                # Get/Create Distribution
                 dist, created = NewsDistribution.objects.get_or_create(
                     news_post=news_post,
                     portal=portal,
                     defaults={
                         "portal_category": portal_category,
-                        "master_category_id": master_category_id,
                         "status": "PENDING",
-                        "response_message": "Queued for publishing",
+                        "response_message": "Queued",
                         "started_at": timezone.now(),
                     },
                 )
 
-                # Skip if already successful
+                # Update category if changed
+                if not created and dist.portal_category != portal_category:
+                    dist.portal_category = portal_category
+                    dist.save()
+
+                # Skip if success
                 if dist.status == "SUCCESS":
                     results.append({
                         "portal": portal.name,
                         "category": portal_category.name,
                         "success": True,
-                        "response": "Already published successfully, skipped.",
+                        "response": "Already published."
                     })
                     continue
 
-                # Retry if failed previously
+                # Retry logic
                 if dist.status == "FAILED":
                     dist.retry_count += 1
                     dist.status = "PENDING"
-                    dist.response_message = "Retrying..."
-                    dist.save(update_fields=["retry_count", "status", "response_message"])
+                    dist.save()
 
                 start_time = time.perf_counter()
 
-                # === AI GENERATION ===
                 try:
-                    if hasattr(mapping, "use_default_content") and mapping.use_default_content:
+                    # --- AI CONTENT GENERATION ---
+                    # If use_default_content is True (Legacy OR Trigger Category)
+                    if mapping.use_default_content:
                         rewritten_title = news_post.title
                         rewritten_short = news_post.short_description
                         rewritten_content = news_post.content
                         rewritten_meta = news_post.meta_title or news_post.title
-                        rewritten_slug = news_post.slug or slugify(news_post.meta_title or news_post.title)
+                        rewritten_slug = news_post.slug
                     else:
+                        # AI Rewrite for targets/manuals
                         portal_prompt = (
                             PortalPrompt.objects.filter(portal=portal, is_active=True).first()
                             or PortalPrompt.objects.filter(portal__isnull=True, is_active=True).first()
                         )
-                        prompt_text = (
-                            portal_prompt.prompt_text
-                            if portal_prompt else "Rewrite slightly for clarity"
-                        )
+                        prompt_text = portal_prompt.prompt_text if portal_prompt else "Rewrite for clarity"
 
-                        result = generate_variation_with_gpt(
+                        ai_result = generate_variation_with_gpt(
                             news_post.title,
                             news_post.short_description,
                             news_post.content,
@@ -880,121 +1189,82 @@ class MasterNewsPostPublishAPIView(APIView):
                             news_post.slug,
                             portal_name=portal.name,
                         )
+                        
+                        if not ai_result: raise ValueError("AI generation failed")
+                        rewritten_title, rewritten_short, rewritten_content, rewritten_meta, rewritten_slug = ai_result
 
-                        if not result:
-                            raise ValueError("AI generation failed — no data returned")
+                    # --- USER MAPPING ---
+                    portal_user = PortalUserMapping.objects.filter(
+                        user=user, portal=portal, status="MATCHED"
+                    ).first()
 
-                        rewritten_title, rewritten_short, rewritten_content, rewritten_meta, rewritten_slug = result
+                    if not portal_user:
+                        raise ValueError(f"User {user.username} not mapped to portal {portal.name}")
 
-                except Exception as e:    
-                    dist.status = "FAILED"
-                    dist.response_message = f"AI generation failed: {str(e)}"
-                    dist.completed_at = timezone.now()
-                    dist.save(update_fields=["status", "response_message", "completed_at"])
+                    # --- PAYLOAD & SEND ---
+                    payload = {
+                        "post_cat": portal_category.external_id,
+                        "post_title": rewritten_title,
+                        "post_short_des": rewritten_short,
+                        "post_des": rewritten_content,
+                        "meta_title": rewritten_meta,
+                        "slug": rewritten_slug,
+                        "post_tag": news_post.post_tag or "",
+                        "author": portal_user.portal_user_id,
+                        "Event_date": (news_post.Event_date or timezone.now().date()).isoformat(),
+                        "Eventend_date": (news_post.Event_end_date or timezone.now().date()).isoformat(),
+                        "schedule_date": (news_post.schedule_date or timezone.now()).isoformat(),
+                        "is_active": int(bool(news_post.latest_news)),
+                        "Event": int(bool(news_post.upcoming_event)),
+                        "Head_Lines": int(bool(news_post.Head_Lines)),
+                        "articles": int(bool(news_post.articles)),
+                        "trending": int(bool(news_post.trending)),
+                        "BreakingNews": int(bool(news_post.BreakingNews)),
+                        "post_status": news_post.counter or 0,
+                    }
 
-                    results.append({
-                        "portal": portal.name,
-                        "category": portal_category.name,
-                        "success": False,
-                        "response": f"AI generation failed: {str(e)}",
-                    })
-                    continue
+                    files = {"post_image": open(news_post.post_image.path, "rb")} if news_post.post_image else None
 
-                # === PORTAL USER MAPPING ===
-                portal_user = PortalUserMapping.objects.filter(
-                    user=user,
-                    portal=portal,
-                    status="MATCHED"
-                ).first()
-
-                if not portal_user:
-                    dist.status = "FAILED"
-                    dist.response_message = "No valid portal user mapping found."
-                    dist.completed_at = timezone.now()
-                    dist.save(update_fields=["status", "response_message", "completed_at"])
-
-                    results.append({
-                        "portal": portal.name,
-                        "category": portal_category.name,
-                        "success": False,
-                        "response": "No valid portal user mapping found.",
-                    })
-                    continue
-
-                # === PAYLOAD ===
-                payload = {
-                    "post_cat": portal_category.external_id if portal_category else None,
-                    "post_title": rewritten_title,
-                    "post_short_des": rewritten_short,
-                    "post_des": rewritten_content,
-                    "meta_title": rewritten_meta,
-                    "slug": rewritten_slug,
-                    "post_tag": news_post.post_tag or "",
-                    "author": portal_user.portal_user_id,
-                    "Event_date": (news_post.Event_date or timezone.now().date()).isoformat(),
-                    "Eventend_date": (news_post.Event_end_date or timezone.now().date()).isoformat(),
-                    "schedule_date": (news_post.schedule_date or timezone.now()).isoformat(),
-                    "is_active": int(bool(news_post.latest_news)) if news_post.latest_news is not None else 0,
-                    "Event": int(bool(news_post.upcoming_event)) if news_post.upcoming_event is not None else 0,
-                    "Head_Lines": int(bool(news_post.Head_Lines)) if news_post.Head_Lines is not None else 0,
-                    "articles": int(bool(news_post.articles)) if news_post.articles is not None else 0,
-                    "trending": int(bool(news_post.trending)) if news_post.trending is not None else 0,
-                    "BreakingNews": int(bool(news_post.BreakingNews)) if news_post.BreakingNews is not None else 0,
-                    "post_status": news_post.counter or 0,
-                }
-
-                files = {"post_image": open(news_post.post_image.path, "rb")} if news_post.post_image else None
-
-                # === SEND API ===
-                portal_news_id = None
-                try:
                     api_url = f"{portal.base_url}/api/create-news/"
                     response = requests.post(api_url, data=payload, files=files, timeout=90)
+                    
                     success = response.status_code in [200, 201]
                     response_msg = response.text
-
-                    # Extract portal news ID if response is valid JSON
+                    
+                    portal_news_id = None
                     try:
                         resp_json = response.json()
-                        if isinstance(resp_json, dict) and resp_json.get("status") is True:
+                        if isinstance(resp_json, dict) and resp_json.get("status"):
                             portal_news_id = resp_json.get("data", {}).get("id")
-                    except Exception:
-                        pass  # JSON parsing failed, ignore silently
+                    except: pass
 
                 except Exception as e:
                     success = False
                     response_msg = str(e)
 
-                # === SAVE RESULT ===
-                elapsed_time = round(time.perf_counter() - start_time, 2)
-
+                # --- SAVE RESULT ---
+                elapsed = round(time.perf_counter() - start_time, 2)
                 dist.status = "SUCCESS" if success else "FAILED"
                 dist.response_message = response_msg
-                dist.ai_title = rewritten_title
-                dist.ai_short_description = rewritten_short
-                dist.ai_content = rewritten_content
-                dist.ai_meta_title = rewritten_meta
-                dist.ai_slug = rewritten_slug
-                dist.time_taken = elapsed_time
-                dist.started_at = timezone.now() - timezone.timedelta(seconds=elapsed_time)
+                dist.time_taken = elapsed
                 dist.completed_at = timezone.now()
-                dist.portal_news_id = str(portal_news_id) if portal_news_id else None
+                if success:
+                    dist.ai_title = rewritten_title
+                    dist.ai_slug = rewritten_slug
+                    dist.portal_news_id = str(portal_news_id) if portal_news_id else None
                 dist.save()
 
                 results.append({
                     "portal": portal.name,
                     "category": portal_category.name,
                     "success": success,
-                    "response": response_msg,
-                    "time_taken": elapsed_time,
+                    "response": response_msg
                 })
 
             return Response(success_response(results, "News published successfully."))
 
         except Exception as e:
-            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR)       
-  
-        
+            return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
 class NewsPostCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -3937,3 +4207,62 @@ class PortalCategoryMatchWithMasterCategoryAPIView(APIView):
 
         except Exception as e:
             return Response(error_response(str(e)), status=500)
+
+
+class CrossPortalMappingListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated] 
+
+    def get(self, request):
+        """
+        Get all mappings. 
+        Filter by ?source_category_id=X to get mappings for a specific category.
+        """
+        source_id = request.query_params.get('source_category_id')
+        
+        if not source_id:
+            return Response(
+                {"error": "source_category_id query parameter is required."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        mappings = CrossPortalMapping.objects.filter(
+            source_category_id=source_id
+        ).select_related('target_category', 'target_category__portal')
+        
+        serializer = CrossPortalMappingReadSerializer(mappings, many=True)
+        return Response(success_response(serializer.data, "Mappings fetched successfully."))
+
+    def post(self, request):
+        """
+        Create mappings.
+        Payload: { "source_category_id": 1, "target_category_ids": [2, 3, 4] }
+        """
+        serializer = CrossPortalMappingCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            # We return the updated list of mappings for this source so UI can update immediately
+            updated_mappings = CrossPortalMapping.objects.filter(
+                source_category_id=serializer.validated_data['source_category_id']
+            ).select_related('target_category', 'target_category__portal')
+            
+            response_serializer = CrossPortalMappingReadSerializer(updated_mappings, many=True)
+            
+            return Response(
+                success_response(response_serializer.data, "Mappings created successfully."), 
+                status=status.HTTP_201_CREATED
+            )
+        
+        return Response(error_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
+
+
+class CrossPortalMappingDeleteAPIView(generics.DestroyAPIView):
+    """
+    Delete a specific mapping by ID (Primary Key of CrossPortalMapping).
+    """
+    permission_classes = [IsAuthenticated]
+    queryset = CrossPortalMapping.objects.all()
+    
+    def delete(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response(success_response([], "Mapping deleted successfully."), status=status.HTTP_200_OK)

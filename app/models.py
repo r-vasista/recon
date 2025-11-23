@@ -139,6 +139,7 @@ class MasterNewsPost(BaseModel):
     excluded_portals = models.JSONField(null=True, blank=True, default=list)
     portal_category_ids = models.JSONField(null=True, blank=True, default=list)
     exclude_portal_categories = models.JSONField(null=True, blank=True, default=list)
+    cross_portal_category_id = models.IntegerField(null=True, blank=True, help_text="The specific portal category that triggers cross-posting logic.")
 
     # Meta info
     created_at = models.DateTimeField(auto_now_add=True)
@@ -338,3 +339,29 @@ class NewsArticle(models.Model):
     def __str__(self):
         return self.title
     
+
+class CrossPortalMapping(BaseModel):
+    """
+    Defines the flow: When a news post is sent to 'source_category',
+    automatically send it to 'target_category' as well.
+    """
+    source_category = models.ForeignKey(
+        PortalCategory, 
+        on_delete=models.CASCADE, 
+        related_name="outgoing_mappings",
+        help_text=" The category the user selects (Trigger)"
+    )
+    target_category = models.ForeignKey(
+        PortalCategory, 
+        on_delete=models.CASCADE, 
+        related_name="incoming_mappings",
+        help_text="The category to automatically distribute to"
+    )
+
+    class Meta:
+        unique_together = ("source_category", "target_category")
+        verbose_name = "Cross Portal Mapping"
+        verbose_name_plural = "Cross Portal Mappings"
+
+    def __str__(self):
+        return f"{self.source_category} -> {self.target_category}"

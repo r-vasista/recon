@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution, PortalPrompt,
-    NewsPublishTask, NewsArticle, NewsSource, NewsSourceFeed
+    NewsPublishTask, NewsArticle, NewsSource, NewsSourceFeed, CrossPortalMapping
 )
 
 @admin.register(Portal)
@@ -93,3 +93,10 @@ class NewsArticleAdmin(admin.ModelAdmin):
     list_display = ['id', 'title', 'link', 'source_feed']
     search_fields = ['id', 'title', 'link', 'source_feed']
     list_filter = ['id', 'title', 'link', 'source_feed']
+
+
+@admin.register(CrossPortalMapping)
+class CrossPortalMappingAdmin(admin.ModelAdmin):
+    list_display = ['id', 'source_category', 'target_category', 'created_at']
+    search_fields = ['id', 'source_category', 'target_category', 'created_at']
+    list_filter = ['id', 'source_category', 'target_category', 'created_at']
