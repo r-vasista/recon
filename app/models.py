@@ -299,3 +299,42 @@ class NewsPublishTask(models.Model):
 
     def __str__(self):
         return f"{self.task_id} → {self.news_post.title}"
+
+
+class NewsSource(models.Model):
+    """Represents a news source (e.g., BBC, Times of India, etc.)."""
+    name = models.CharField(max_length=255, unique=True)
+    description = models.TextField(null=True, blank=True)
+
+    def __str__(self):
+        return self.name
+    
+    
+class NewsSourceFeed(models.Model):
+    """Represents a specific RSS feed section for a news source."""
+    source = models.ForeignKey(NewsSource, on_delete=models.CASCADE, related_name="feeds")
+    section_name = models.CharField(max_length=255)
+    rss_url = models.URLField(unique=True)
+    
+    def __str__(self):
+        return f"{self.source.name} - {self.section_name}"
+
+
+class NewsArticle(models.Model):
+    """Represents an article fetched from an RSS feed."""
+    title = models.CharField(max_length=255)
+    link = models.URLField()
+    summary = models.TextField(null=True, blank=True)
+    content = models.TextField(null=True, blank=True)
+    published_at = models.DateTimeField()
+    source_feed = models.ForeignKey(NewsSourceFeed, on_delete=models.CASCADE, related_name="articles")
+    guid = models.CharField(max_length=255, unique=True)  # RSS unique identifier for the article
+    author = models.CharField(max_length=255, null=True, blank=True)
+    image_url = models.URLField(null=True, blank=True)
+    tags = models.JSONField(default=list, blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.title
+    
