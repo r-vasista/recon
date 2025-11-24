@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution, PortalPrompt,
-    NewsPublishTask
+    NewsPublishTask, NewsArticle, NewsSource, NewsSourceFeed, CrossPortalMapping
 )
 
 @admin.register(Portal)
@@ -72,3 +72,31 @@ class NewsPublishTaskAdmin(admin.ModelAdmin):
     list_display = ['id', 'news_post', 'task_id', 'status', 'triggered_by']
     search_fields = ['id', 'news_post', 'task_id', 'status', 'triggered_by']
     list_filter = ['id', 'news_post', 'task_id', 'status', 'triggered_by']
+
+
+@admin.register(NewsSource)
+class NewsSourceAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'description']
+    search_fields = ['id', 'name', 'description']
+    list_filter = ['id', 'name', 'description']
+
+
+@admin.register(NewsSourceFeed)
+class NewsSourceFeedAdmin(admin.ModelAdmin):
+    list_display = ['id', 'source', 'section_name', 'rss_url']
+    search_fields = ['id', 'source', 'section_name', 'rss_url']
+    list_filter = ['id', 'source', 'section_name', 'rss_url']
+
+
+@admin.register(NewsArticle)
+class NewsArticleAdmin(admin.ModelAdmin):
+    list_display = ['id', 'title', 'link', 'source_feed']
+    search_fields = ['id', 'title', 'link', 'source_feed']
+    list_filter = ['id', 'title', 'link', 'source_feed']
+
+
+@admin.register(CrossPortalMapping)
+class CrossPortalMappingAdmin(admin.ModelAdmin):
+    list_display = ['id', 'source_category', 'target_category', 'created_at']
+    search_fields = ['id', 'source_category', 'target_category', 'created_at']
+    list_filter = ['id', 'source_category', 'target_category', 'created_at']

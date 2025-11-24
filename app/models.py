@@ -139,6 +139,7 @@ class MasterNewsPost(BaseModel):
     excluded_portals = models.JSONField(null=True, blank=True, default=list)
     portal_category_ids = models.JSONField(null=True, blank=True, default=list)
     exclude_portal_categories = models.JSONField(null=True, blank=True, default=list)
+    cross_portal_category_id = models.IntegerField(null=True, blank=True, help_text="The specific portal category that triggers cross-posting logic.")
 
     # Meta info
     created_at = models.DateTimeField(auto_now_add=True)
@@ -299,3 +300,68 @@ class NewsPublishTask(models.Model):
 
     def __str__(self):
         return f"{self.task_id} → {self.news_post.title}"
+
+
+class NewsSource(models.Model):
+    """Represents a news source (e.g., BBC, Times of India, etc.)."""
+    name = models.CharField(max_length=255, unique=True)
+    description = models.TextField(null=True, blank=True)
+
+    def __str__(self):
+        return self.name
+    
+    
+class NewsSourceFeed(models.Model):
+    """Represents a specific RSS feed section for a news source."""
+    source = models.ForeignKey(NewsSource, on_delete=models.CASCADE, related_name="feeds")
+    section_name = models.CharField(max_length=255)
+    rss_url = models.URLField(unique=True)
+    
+    def __str__(self):
+        return f"{self.source.name} - {self.section_name}"
+
+
+class NewsArticle(models.Model):
+    """Represents an article fetched from an RSS feed."""
+    title = models.CharField(max_length=255)
+    link = models.URLField()
+    summary = models.TextField(null=True, blank=True)
+    content = models.TextField(null=True, blank=True)
+    published_at = models.DateTimeField()
+    source_feed = models.ForeignKey(NewsSourceFeed, on_delete=models.CASCADE, related_name="articles")
+    guid = models.CharField(max_length=255, unique=True)  # RSS unique identifier for the article
+    author = models.CharField(max_length=255, null=True, blank=True)
+    image_url = models.URLField(null=True, blank=True)
+    tags = models.JSONField(default=list, blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.title
+    
+
+class CrossPortalMapping(BaseModel):
+    """
+    Defines the flow: When a news post is sent to 'source_category',
+    automatically send it to 'target_category' as well.
+    """
+    source_category = models.ForeignKey(
+        PortalCategory, 
+        on_delete=models.CASCADE, 
+        related_name="outgoing_mappings",
+        help_text=" The category the user selects (Trigger)"
+    )
+    target_category = models.ForeignKey(
+        PortalCategory, 
+        on_delete=models.CASCADE, 
+        related_name="incoming_mappings",
+        help_text="The category to automatically distribute to"
+    )
+
+    class Meta:
+        unique_together = ("source_category", "target_category")
+        verbose_name = "Cross Portal Mapping"
+        verbose_name_plural = "Cross Portal Mappings"
+
+    def __str__(self):
+        return f"{self.source_category} -> {self.target_category}"

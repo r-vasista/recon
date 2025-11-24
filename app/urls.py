@@ -10,7 +10,7 @@ from .views import (
     UserPostStatsAPIView, UserPerformanceAPIView, NewsDistributionEditAPIView, NewsDistributionDeleteAPIView, 
     CategoryStatsAPIView, UserPortalDistributionStatsAPIView, NewsDistributionFetchAPIView, BackgroundNewsPostPublishAPIView,
     PublishStatusAPIView, NewsPublishTaskListAPIView, UniqueParentCategoryAPIView, PortalCategoriesByParentAPIView,
-    PortalCategoryMatchWithMasterCategoryAPIView
+    PortalCategoryMatchWithMasterCategoryAPIView, CrossPortalMappingListCreateAPIView, CrossPortalMappingDeleteAPIView
 )
 
 urlpatterns = [
@@ -25,6 +25,10 @@ urlpatterns = [
     path('portal/category/<str:portal_name>/<str:external_id>/', PortalCategoryUpdateDeleteView.as_view()),
     path('portals/categories/list/<str:portal_name>/', PortalCategoryListView.as_view()),
     path('portal/category/matching/', PortalCategoryMatchWithMasterCategoryAPIView.as_view()),
+    
+    # Cross portal Mapping
+    path('cross-portal-mappings/', CrossPortalMappingListCreateAPIView.as_view()),
+    path('cross-portal-mappings/<int:pk>/', CrossPortalMappingDeleteAPIView.as_view()),
     
     # Master Category
     path('master/category/', MasterCategoryView.as_view()),
