@@ -37,7 +37,8 @@ from .models import (
 from .serializers import (
     PortalSerializer, PortalSafeSerializer, PortalCategorySerializer, MasterCategorySerializer, 
     MasterCategoryMappingSerializer, GroupSerializer, GroupListSerializer, MasterNewsPostSerializer, MasterNewsPostListSerializer,
-    NewsDistributionListSerializer, NewsDistributionSerializer, CrossPortalMappingCreateSerializer, CrossPortalMappingReadSerializer
+    NewsDistributionListSerializer, NewsDistributionSerializer, CrossPortalMappingCreateSerializer, CrossPortalMappingReadSerializer,
+    MappedTargetCategorySerializer, SourceCategoryDetailSerializer
 )
 from .utils import (
     success_response, error_response, generate_variation_with_gpt, get_portals_from_assignment
@@ -4214,24 +4215,38 @@ class CrossPortalMappingListCreateAPIView(APIView):
 
     def get(self, request):
         """
-        Get all mappings. 
-        Filter by ?source_category_id=X to get mappings for a specific category.
+        Get mappings with full source details and target list.
         """
         source_id = request.query_params.get('source_category_id')
         
         if not source_id:
             return Response(
-                {"error": "source_category_id query parameter is required."}, 
+                error_response("source_category_id query parameter is required."), 
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # 1. Fetch the requested Source Category (for 'requested_portal_category')
+        source_category = get_object_or_404(PortalCategory, pk=source_id)
+
+        # 2. Fetch the Mappings (for 'mapped_portal_categories')
+        # Use select_related to join target_category AND its portal to avoid N+1 queries
         mappings = CrossPortalMapping.objects.filter(
-            source_category_id=source_id
+            source_category=source_category
         ).select_related('target_category', 'target_category__portal')
         
-        serializer = CrossPortalMappingReadSerializer(mappings, many=True)
-        return Response(success_response(serializer.data, "Mappings fetched successfully."))
+        # 3. Serialize Data
+        source_data = SourceCategoryDetailSerializer(source_category).data
+        mapped_data = MappedTargetCategorySerializer(mappings, many=True).data
 
+        # 4. Construct Final Response Structure
+        response_payload = {
+            "requested_portal_category": source_data,
+            "mapping_found": mappings.exists(),
+            "mapped_portal_categories": mapped_data
+        }
+
+        return Response(success_response(response_payload, "Mapped portal categories returned"))
+    
     def post(self, request):
         """
         Create mappings.
