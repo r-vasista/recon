@@ -268,7 +268,7 @@ class MappedTargetCategorySerializer(serializers.ModelSerializer):
     portal_name = serializers.CharField(source='target_category.portal.name')
 
     # Essential: Include the Mapping ID so the frontend knows which ID to delete
-    portal_category_id = serializers.IntegerField(source='id')
+    cross_mapping_id = serializers.IntegerField(source='id')
 
     class Meta:
         model = CrossPortalMapping
@@ -277,5 +277,5 @@ class MappedTargetCategorySerializer(serializers.ModelSerializer):
             'name',
             'parent_name', 
             'portal_name',
-            'portal_category_id' 
+            'cross_mapping_id' 
         ]
