@@ -236,3 +236,46 @@ class CrossPortalMappingCreateSerializer(serializers.Serializer):
                 created_mappings.append(mapping)
         
         return created_mappings
+    
+
+class SourceCategoryDetailSerializer(serializers.ModelSerializer):
+    """
+    Serializes the 'requested_portal_category' part of the response.
+    """
+    portal_name =serializers.CharField(source='portal.name')
+
+    class Meta:
+        model = PortalCategory
+        fields = [
+            'id', 
+            'name', 
+            'parent_name', 
+            'portal_name',
+        ]
+
+class MappedTargetCategorySerializer(serializers.ModelSerializer):
+    """
+    Serializes the 'mapped_portal_categories' list.
+    It takes a CrossPortalMapping object but outputs the Target Category details
+    plus the Portal Name.
+    """
+    # Map fields from the related 'target_category'
+    id = serializers.IntegerField(source='target_category.id')
+    name = serializers.CharField(source='target_category.name')
+    parent_name = serializers.CharField(source='target_category.parent_name')
+    
+    # Map fields from the related 'target_category.portal'
+    portal_name = serializers.CharField(source='target_category.portal.name')
+
+    # Essential: Include the Mapping ID so the frontend knows which ID to delete
+    portal_category_id = serializers.IntegerField(source='id')
+
+    class Meta:
+        model = CrossPortalMapping
+        fields = [
+            'id', 
+            'name',
+            'parent_name', 
+            'portal_name',
+            'portal_category_id' 
+        ]
