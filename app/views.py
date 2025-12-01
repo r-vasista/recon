@@ -3367,12 +3367,15 @@ class NewsDistributionEditAPIView(APIView):
                 "post_short_des": distribution.ai_short_description or news_post.short_description,
                 "post_des": distribution.ai_content or news_post.content,
                 "post_tag": request.data.get("post_tag", news_post.post_tag or "#latest"),
-                "is_active": int(bool(int(request.data.get("is_active", news_post.is_active)))),
-                "Head_Lines": int(bool(int(request.data.get("Head_Lines", news_post.Head_Lines)))),
-                "articles": int(bool(int(request.data.get("articles", news_post.articles)))),
-                "trending": int(bool(int(request.data.get("trending", news_post.trending)))),
-                "BreakingNews": int(bool(int(request.data.get("BreakingNews", news_post.BreakingNews)))),
-                "Event": int(bool(int(request.data.get("Event", news_post.Event)))),
+                
+                # FIX: Add 'or 0' to handle cases where DB value is None
+                "is_active": int(bool(int(request.data.get("is_active", news_post.is_active) or 0))),
+                "Head_Lines": int(bool(int(request.data.get("Head_Lines", news_post.Head_Lines) or 0))),
+                "articles": int(bool(int(request.data.get("articles", news_post.articles) or 0))),
+                "trending": int(bool(int(request.data.get("trending", news_post.trending) or 0))),
+                "BreakingNews": int(bool(int(request.data.get("BreakingNews", news_post.BreakingNews) or 0))),
+                "Event": int(bool(int(request.data.get("Event", news_post.Event) or 0))),
+                
                 "Event_date": request.data.get("Event_date", (news_post.Event_date or timezone.now().date()).isoformat()),
                 "Eventend_date": request.data.get("Event_end_date", (news_post.Event_end_date or timezone.now().date()).isoformat()),
                 "schedule_date": request.data.get("schedule_date", (news_post.schedule_date or timezone.now()).isoformat()),
