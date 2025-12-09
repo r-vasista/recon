@@ -4068,7 +4068,8 @@ class PortalCategoriesByParentAPIView(APIView):
                 "name",
                 "external_id",
                 "parent_name",
-                "parent_external_id"
+                "parent_external_id",
+                "portal",
             ).order_by("name")
 
             return Response(
