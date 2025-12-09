@@ -14,3 +14,9 @@
 [2025-11-14 12:05:36,435] INFO news_publish — [9f3099be-33b1-4b1f-8000-6fec95a8e625] Publishing to newsibleasia (Science & Research)
 [2025-11-14 12:05:54,694] INFO news_publish — [9f3099be-33b1-4b1f-8000-6fec95a8e625] Publishing to gccnews (sub cat 1)
 [2025-11-14 12:06:12,475] INFO news_publish — [9f3099be-33b1-4b1f-8000-6fec95a8e625] Completed publishing
+[2025-11-15 11:24:51,949] INFO news_publish — [019b5ca8-cb05-4cff-8cdc-3a50287b4576] Task started for news_post=102
+[2025-11-15 11:24:52,054] INFO news_publish — [019b5ca8-cb05-4cff-8cdc-3a50287b4576] Publishing to newsibleasia (Science & Research)
+[2025-11-15 11:25:07,946] INFO news_publish — [019b5ca8-cb05-4cff-8cdc-3a50287b4576] Completed publishing
+[2025-11-15 11:25:32,829] INFO news_publish — [70d89af8-43f9-425f-b8b8-587c297cf2b8] Task started for news_post=102
+[2025-11-15 11:25:33,374] INFO news_publish — [70d89af8-43f9-425f-b8b8-587c297cf2b8] Publishing to newsibleasia (Science & Research)
+[2025-11-15 11:25:57,745] INFO news_publish — [70d89af8-43f9-425f-b8b8-587c297cf2b8] Completed publishing
