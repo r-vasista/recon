@@ -243,6 +243,7 @@ class SourceCategoryDetailSerializer(serializers.ModelSerializer):
     Serializes the 'requested_portal_category' part of the response.
     """
     portal_name =serializers.CharField(source='portal.name')
+    portal_id = serializers.CharField(source='portal.id')
 
     class Meta:
         model = PortalCategory
@@ -251,6 +252,7 @@ class SourceCategoryDetailSerializer(serializers.ModelSerializer):
             'name', 
             'parent_name', 
             'portal_name',
+            'portal_id',
         ]
 
 class MappedTargetCategorySerializer(serializers.ModelSerializer):
@@ -266,6 +268,8 @@ class MappedTargetCategorySerializer(serializers.ModelSerializer):
     
     # Map fields from the related 'target_category.portal'
     portal_name = serializers.CharField(source='target_category.portal.name')
+    portal_id = serializers.CharField(source='target_category.portal.id')
+    
 
     # Essential: Include the Mapping ID so the frontend knows which ID to delete
     cross_mapping_id = serializers.IntegerField(source='id')
@@ -277,5 +281,6 @@ class MappedTargetCategorySerializer(serializers.ModelSerializer):
             'name',
             'parent_name', 
             'portal_name',
+            'portal_id',
             'cross_mapping_id' 
         ]

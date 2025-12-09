@@ -10,7 +10,8 @@ from .views import (
     UserPostStatsAPIView, UserPerformanceAPIView, NewsDistributionEditAPIView, NewsDistributionDeleteAPIView, 
     CategoryStatsAPIView, UserPortalDistributionStatsAPIView, NewsDistributionFetchAPIView, BackgroundNewsPostPublishAPIView,
     PublishStatusAPIView, NewsPublishTaskListAPIView, UniqueParentCategoryAPIView, PortalCategoriesByParentAPIView,
-    PortalCategoryMatchWithMasterCategoryAPIView, CrossPortalMappingListCreateAPIView, CrossPortalMappingDeleteAPIView
+    PortalCategoryMatchWithMasterCategoryAPIView, CrossPortalMappingListCreateAPIView, CrossPortalMappingDeleteAPIView,
+    NewsPortalImageUploadAPIView
 )
 
 urlpatterns = [
@@ -59,6 +60,7 @@ urlpatterns = [
     path('news/distributed/detail/<int:pk>/', NewsDistributionDetailAPIView.as_view()),
     path('publish/status/', PublishStatusAPIView.as_view()),
     path('news/publish/tasks/list/<int:pk>/', NewsPublishTaskListAPIView.as_view()),
+    path('portal-image-upload/<int:pk>/',NewsPortalImageUploadAPIView.as_view()),
     
     # Stats and Dashboard
     path('admin/stats/', AdminStatsAPIView.as_view()),

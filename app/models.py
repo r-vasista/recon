@@ -365,3 +365,16 @@ class CrossPortalMapping(BaseModel):
 
     def __str__(self):
         return f"{self.source_category} -> {self.target_category}"
+
+
+class MasterNewsPortalImage(models.Model):
+    news_post = models.ForeignKey(MasterNewsPost, on_delete=models.CASCADE, related_name="portal_images")
+    portal = models.ForeignKey(Portal, on_delete=models.CASCADE, related_name="custom_post_images")
+    custom_image = models.ImageField(upload_to="portal_specific/%Y/%m/%d/")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('news_post', 'portal')
+
+    def __str__(self):
+        return f"Image for {self.portal.name} - {self.news_post.title}"

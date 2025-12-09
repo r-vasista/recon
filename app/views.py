@@ -32,7 +32,7 @@ from django.utils.text import slugify
 
 from .models import (
     Portal, PortalCategory, MasterCategory, MasterCategoryMapping, Group, MasterNewsPost, NewsDistribution, PortalPrompt,
-    NewsPublishTask, CrossPortalMapping
+        NewsPublishTask, CrossPortalMapping, MasterNewsPortalImage
 )
 from .serializers import (
     PortalSerializer, PortalSafeSerializer, PortalCategorySerializer, MasterCategorySerializer, 
@@ -1149,9 +1149,9 @@ class MasterNewsPostPublishAPIView(APIView):
                 # Skip if success
                 if dist.status == "SUCCESS":
                     results.append({
-                        "portal": portal.name,
-                        "category": portal_category.name,
-                        "success": True,
+                        "portal": portal.name, 
+                        "category": portal_category.name, 
+                        "success": True, 
                         "response": "Already published."
                     })
                     continue
@@ -1165,8 +1165,25 @@ class MasterNewsPostPublishAPIView(APIView):
                 start_time = time.perf_counter()
 
                 try:
+                    # ========================================================
+                    # ### IMAGE SELECTION LOGIC
+                    # ========================================================
+                    final_image_path = None
+                    
+                    # 1. Query the DB for a specific image for THIS portal
+                    custom_img_obj = MasterNewsPortalImage.objects.filter(
+                        news_post=news_post, 
+                        portal=portal
+                    ).first()
+
+                    if custom_img_obj and custom_img_obj.custom_image:
+                        final_image_path = custom_img_obj.custom_image.path
+                    elif news_post.post_image:
+                        # 2. Fallback to Master Image
+                        final_image_path = news_post.post_image.path
+                    # ========================================================
+
                     # --- AI CONTENT GENERATION ---
-                    # If use_default_content is True (Legacy OR Trigger Category)
                     if mapping.use_default_content:
                         rewritten_title = news_post.title
                         rewritten_short = news_post.short_description
@@ -1174,7 +1191,6 @@ class MasterNewsPostPublishAPIView(APIView):
                         rewritten_meta = news_post.meta_title or news_post.title
                         rewritten_slug = news_post.slug
                     else:
-                        # AI Rewrite for targets/manuals
                         portal_prompt = (
                             PortalPrompt.objects.filter(portal=portal, is_active=True).first()
                             or PortalPrompt.objects.filter(portal__isnull=True, is_active=True).first()
@@ -1202,7 +1218,7 @@ class MasterNewsPostPublishAPIView(APIView):
                     if not portal_user:
                         raise ValueError(f"User {user.username} not mapped to portal {portal.name}")
 
-                    # --- PAYLOAD & SEND ---
+                    # --- PAYLOAD ---
                     payload = {
                         "post_cat": portal_category.external_id,
                         "post_title": rewritten_title,
@@ -1224,8 +1240,16 @@ class MasterNewsPostPublishAPIView(APIView):
                         "post_status": news_post.counter or 0,
                     }
 
-                    files = {"post_image": open(news_post.post_image.path, "rb")} if news_post.post_image else None
+                    # --- FILE PREPARATION ---
+                    files = None
+                    if final_image_path:
+                        try:
+                            files = {"post_image": open(final_image_path, "rb")}
+                        except FileNotFoundError:
+                            # Log warning but proceed (or fail depending on requirements)
+                            pass
 
+                    # --- SEND ---
                     api_url = f"{portal.base_url}/api/create-news/"
                     response = requests.post(api_url, data=payload, files=files, timeout=90)
                     
@@ -1266,6 +1290,8 @@ class MasterNewsPostPublishAPIView(APIView):
 
         except Exception as e:
             return Response(error_response(str(e)), status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+        
+        
 class NewsPostCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -4284,3 +4310,56 @@ class CrossPortalMappingDeleteAPIView(generics.DestroyAPIView):
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response(success_response([], "Mapping deleted successfully."), status=status.HTTP_200_OK)
+
+
+class NewsPortalImageUploadAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, pk):
+        """
+        Uploads specific images for specific portals for a MasterNewsPost.
+        Expects payload keys: 'portal_image_1', 'portal_image_15', etc.
+        """
+        try:
+            news_post = get_object_or_404(MasterNewsPost, pk=pk)
+            uploaded_count = 0
+            errors = []
+
+            # Loop through all files in the request
+            for key, file_obj in request.FILES.items():
+                # We expect keys like "portal_image_10" where 10 is the portal ID
+                if key.startswith("portal_image_"):
+                    try:
+                        portal_id_str = key.split("_")[-1] # Get the last part (ID)
+                        
+                        if not portal_id_str.isdigit():
+                            continue
+
+                        portal_id = int(portal_id_str)
+                        portal = Portal.objects.get(pk=portal_id)
+
+                        # Create or Update the image for this portal
+                        MasterNewsPortalImage.objects.update_or_create(
+                            news_post=news_post,
+                            portal=portal,
+                            defaults={"custom_image": file_obj}
+                        )
+                        uploaded_count += 1
+
+                    except Portal.DoesNotExist:
+                        errors.append(f"Portal ID {portal_id_str} invalid.")
+                    except Exception as e:
+                        errors.append(f"Error on {key}: {str(e)}")
+
+            if uploaded_count == 0 and not errors:
+                return Response(error_response("No valid 'portal_image_{id}' keys found in request."), status=400)
+
+            msg = f"Successfully saved {uploaded_count} portal-specific images."
+            if errors:
+                msg += f" (Errors: {'; '.join(errors)})"
+
+            return Response(success_response({}, msg), status=200)
+
+        except Exception as e:
+            return Response(error_response(str(e)), status=500)
