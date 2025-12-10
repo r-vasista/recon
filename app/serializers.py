@@ -149,7 +149,7 @@ class NewsDistributionListSerializer(serializers.ModelSerializer):
         model = NewsDistribution
         fields = ['id', 'news_post_title', 'portal_name', 'master_category_name', 'portal_category_name', 'status', 
                   'sent_at', 'retry_count', 'news_post_image', 'news_post_created_by', 'ai_title', 'ai_short_description',
-                  'ai_content', 'ai_meta_title', 'ai_slug', 'live_url', 'time_taken', 'response_message']
+                  'ai_content', 'ai_meta_title', 'ai_slug', 'live_url', 'time_taken', 'response_message', 'portal_news_id']
     
     def get_news_post_image(self, obj):
         request = self.context.get("request")
