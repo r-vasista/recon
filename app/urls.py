@@ -9,7 +9,7 @@ from .views import (
     InactivityAlertsAPIView, NewsDistributionRateOverTimeAPIView, FailureReasonsStatsAPIView, MasterCategoryHeatmapAPIView,
     UserPostStatsAPIView, UserPerformanceAPIView, NewsDistributionEditAPIView, NewsDistributionDeleteAPIView, 
     CategoryStatsAPIView, UserPortalDistributionStatsAPIView, NewsDistributionFetchAPIView, BackgroundNewsPostPublishAPIView,
-    PublishStatusAPIView, NewsPublishTaskListAPIView, UniqueParentCategoryAPIView, PortalCategoriesByParentAPIView,
+    PublishStatusAPIView, NewsPublishTaskListAPIView, GA4TokenAPI , GA4UniversalAPI, UniqueParentCategoryAPIView, PortalCategoriesByParentAPIView,
     PortalCategoryMatchWithMasterCategoryAPIView, CrossPortalMappingListCreateAPIView, CrossPortalMappingDeleteAPIView,
     NewsPortalImageUploadAPIView
 )
@@ -77,4 +77,10 @@ urlpatterns = [
     path('user/performance/<int:user_id>/', UserPerformanceAPIView.as_view()),
     path('user/portal/performance/<int:user_id>/', UserPortalDistributionStatsAPIView.as_view()),
     path('category/stats/<int:category_id>/', CategoryStatsAPIView.as_view()),
+
+    # GA4 API
+    path("ga4/token/", GA4TokenAPI.as_view()),
+    path("ga4/query/", GA4UniversalAPI.as_view()),
+
+
 ]

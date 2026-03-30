@@ -27,6 +27,10 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.contrib.auth import get_user_model
 from django.utils.text import slugify
+from ga4.utils import generate_ga4_token
+from ga4.request import ga4_request
+
+
 
 
 
@@ -4364,3 +4368,31 @@ class NewsPortalImageUploadAPIView(APIView):
 
         except Exception as e:
             return Response(error_response(str(e)), status=500)
+
+
+# GA4 Api Integration
+class GA4TokenAPI(APIView):
+    def get(self, request):
+        token = generate_ga4_token()
+        return Response({"token": token})
+    
+
+class GA4UniversalAPI(APIView):
+    def post(self, request):
+
+        property_id = request.data.get("pid")
+        endpoint = request.data.get("endpoint")
+        body = request.data.get("body")
+
+        if not property_id:
+            return Response({"error": "Missing pid"}, status=400)
+
+        if not endpoint:
+            return Response({"error": "Missing endpoint"}, status=400)
+
+        if not body:
+            return Response({"error": "Missing body"}, status=400)
+
+        data = ga4_request(property_id, endpoint, body)
+        return Response(data)
+    
