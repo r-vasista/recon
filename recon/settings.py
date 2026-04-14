@@ -15,6 +15,7 @@ from datetime import timedelta
 from dotenv import load_dotenv
 import os
 import logging
+from celery.schedules import crontab
 
 # Load environment variables from the .env file (if present)
 load_dotenv()
@@ -49,6 +50,7 @@ INSTALLED_APPS = [
     'app',
     'user',
     'corsheaders',
+    'django_celery_beat',
 ]
 
 MIDDLEWARE = [
@@ -218,3 +220,17 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
 
+
+# CELERY_BEAT_SCHEDULE = {
+#     'delete-old-news-distributions': {
+#         'task': 'delete_old_news_distributions',
+#         'schedule': crontab(hour=0, minute=0, day_of_week='sunday'),  # Every sunday midnight
+#     },
+# }
+
+CELERY_BEAT_SCHEDULE = {
+    'delete-old-news-distributions': {
+        'task': 'delete_old_news_distributions',
+        'schedule': crontab(minute='*/5'),  # every 5 minutes
+    },
+}

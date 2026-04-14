@@ -1,5 +1,6 @@
 from celery import shared_task
 from django.utils import timezone
+from datetime import timedelta
 from django.db import transaction
 from django.contrib.auth import get_user_model
 from app.models import (
@@ -252,3 +253,51 @@ def publish_master_news(self, news_post_id, user_id, mappings_data):
     logger.info(f"[{task_id}] Completed publishing")
 
     return {"success": True, "results": results}
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60 * 10,
+    name='delete_old_news_distributions'
+)
+def delete_old_news_distributions(self):
+    try:
+        # now = timezone.now()
+        now = timezone.now() + timedelta(days=20)
+
+        one_week_ago = now - timedelta(weeks=1)
+        fifteen_days_ago = now - timedelta(days=15)
+
+        # SUCCESS records older than 1 week
+        success_qs = NewsDistribution.objects.filter(
+            sent_at__lt=one_week_ago,
+            status='SUCCESS'
+        )
+
+        # FAILED records older than 15 days
+        failed_qs = NewsDistribution.objects.filter(
+            sent_at__lt=fifteen_days_ago,
+            status__in = ['FAILED', 'PENDING']
+        )
+
+        success_count = success_qs.count()
+        failed_count = failed_qs.count()
+
+        if success_count == 0 and failed_count == 0:
+            logger.info("No old distributions to delete.")
+            return {"deleted_success": 0, "deleted_failed": 0}
+
+        success_qs.delete()
+        logger.info(f"Deleted {success_count} SUCCESS distributions older than 1 week.")
+
+        failed_qs.delete()
+        logger.info(f"Deleted {failed_count} FAILED distributions older than 15 days.")
+
+        return {
+            "deleted_success": success_count,
+            "deleted_failed": failed_count,
+        }
+
+    except Exception as exc:
+        logger.error(f"Failed to delete old distributions: {exc}")
+        raise self.retry(exc=exc)
